@@ -244,7 +244,8 @@ export function runRules(ctx) {
   if (ctx.versionError) {
     findings.push(finding("error", "yaml-fields", "unbuilt.yaml", ctx.yaml.lines.get("unbuilt"), "format version " + ctx.meta.unbuilt + " is not supported by this validator (supports " + SUPPORTED_FORMAT_VERSION + "); see CHANGELOG.md"));
   } else {
-    for (const r of RULES) if (!r.needsMeta || ctx.metaUsable) findings.push(...r.fn(ctx));
+    // A loop, not a spread into push: spreading 120,000 or more findings as arguments overflows the call stack.
+    for (const r of RULES) if (!r.needsMeta || ctx.metaUsable) for (const f of r.fn(ctx)) findings.push(f);
   }
   // Every message and file column, the version short-circuit included, is masked as the last step (amendment 8a).
   const opts = { allowHosts: ctx.allowHosts, exactHosts: ctx.exactHosts };

@@ -867,3 +867,12 @@ test("findings on the same file and line sort by rule name (R-VAL-6)", (t) => {
   assert.deepEqual(result.errors.filter((f) => f.file === "same.md").map((f) => [f.rule, f.line]), [["leak-email", 1], ["leak-home-path", 1]]);
   assert.deepEqual(result.errors.filter((f) => f.file === "pair.md").map((f) => [f.rule, f.line]), [["leak-hostname", 1], ["leak-ipv4", 1]]);
 });
+test("a single 1 MiB line of email addresses exits 1 with findings, not 2 with a stack overflow (correctness recheck 20)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  const unit = "a@b.io ";
+  writeIn(dir, "notes.md", "# Notes\n\n" + unit.repeat(Math.ceil(1048576 / unit.length)) + "\n");
+  const r = runCli([dir, "--today", "2026-10-22"], { maxBuffer: 256 * 1048576 });
+  assert.equal(r.code, 1, r.stderr.slice(0, 300));
+  assert.equal(r.stderr, "");
+  assert.ok(r.stdout.includes("\nerror    leak-email         notes.md:3  email address a@… found"), r.stdout.slice(0, 300));
+});

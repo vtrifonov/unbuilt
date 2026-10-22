@@ -9,8 +9,8 @@ export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url
 export const CLI = path.join(REPO_ROOT, "scripts", "validate.mjs");
 export const FIXTURES = path.join(REPO_ROOT, "test", "fixtures");
 
-export function runCli(args, { env, cwd } = {}) {
-  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, ...env }, cwd });
+export function runCli(args, { env, cwd, maxBuffer } = {}) {
+  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, ...env }, cwd, maxBuffer });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
