@@ -387,3 +387,20 @@ test("retired declarations: prefix check, bullet message, shared-dir dedupe (fix
   const dup = runJson([d, "--json", "--today", "2026-10-22"]).result.errors.filter((f) => f.rule === "module-files");
   assert.equal(dup.length, 1);
 });
+
+test("substitution warnings and the empty-list case (rules 14–15, spec 13)", (t) => {
+  const unlisted = runFixture(t, "substitution-files", { mutate: (d) => { writeIn(d, "substitutions/storage.md", "# storage\n"); writeIn(d, "substitutions/cache.md", "# cache\n"); } });
+  assert.ok(has(unlisted.result, "substitution-files", "warning", "substitutions/cache.md"));
+  assert.deepEqual(unlisted.result.errors, []);
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, "unbuilt.yaml", readIn(dir, "unbuilt.yaml").replace("substitutions:\n  - storage\n", ""));
+  const r = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.deepEqual(r.result.errors, []);
+  assert.ok(has(r.result, "substitution-files", "warning", "substitutions/storage.md"));
+  assert.ok(!r.result.warnings.some((f) => f.rule === "substitution-matrix"));
+});
+test("matrix row and cell errors (rule 15)", (t) => {
+  const rows = runFixture(t, "substitution-matrix", { mutate: (d) => writeIn(d, "substitutions/README.md", "# S\n\n| Module | storage |\n|---|---|\n| PICK | yes |\n") });
+  const msgs = rows.result.errors.filter((f) => f.rule === "substitution-matrix").map((f) => f.message);
+  assert.ok(msgs.some((m) => m.includes('row "PICK"')) && msgs.some((m) => m.includes("missing row CORE")) && msgs.some((m) => m.includes('cell "yes"')));
+});

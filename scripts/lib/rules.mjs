@@ -244,6 +244,93 @@ function coverage(ctx, modality, level, rule) {
 const mustHasScenario = (ctx) => coverage(ctx, "MUST", "error", "must-has-scenario");
 const shouldHasScenario = (ctx) => coverage(ctx, "SHOULD", "warning", "should-has-scenario");
 
+const KEBAB_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+const SUBSTITUTIONS_README = "substitutions/README.md";
+
+function substitutionNames(ctx) {
+  const subs = ctx.meta.substitutions;
+  return Array.isArray(subs) && subs.every(isStr) ? subs : null;
+}
+
+function substitutionFiles(ctx) {
+  const out = [];
+  const subs = substitutionNames(ctx) ?? [];
+  const L = (i) => ctx.yaml.lines.get(`substitutions[${i}]`);
+  const seen = new Set();
+  subs.forEach((name, i) => {
+    if (!KEBAB_RE.test(name)) {
+      out.push(finding("error", "substitution-files", "unbuilt.yaml", L(i), `substitution name "${name}" must be kebab-case (FORMAT.md §4)`));
+      return;
+    }
+    if (seen.has(name)) {
+      out.push(finding("error", "substitution-files", "unbuilt.yaml", L(i), `substitution ${name} is listed twice (FORMAT.md §4)`));
+      return;
+    }
+    seen.add(name);
+    const file = `substitutions/${name}.md`;
+    if (!ctx.files.has(file)) out.push(finding("error", "substitution-files", file, null, `substitution ${name} has no file ${file} (FORMAT.md §4)`));
+  });
+  if (subs.length > 0 && !ctx.files.has(SUBSTITUTIONS_README)) {
+    out.push(finding("error", "substitution-files", SUBSTITUTIONS_README, null, "substitutions/README.md is required when substitutions is non-empty (FORMAT.md §4)"));
+  }
+  for (const p of [...ctx.files.keys()].sort()) {
+    const m = /^substitutions\/([^/]+)\.md$/.exec(p);
+    if (m && p !== SUBSTITUTIONS_README && !seen.has(m[1])) out.push(finding("warning", "substitution-files", p, null, `${p} is not listed in substitutions (FORMAT.md §4)`));
+  }
+  return out;
+}
+
+const tableCells = (line) => {
+  const cells = line.split("|").map((c) => c.trim());
+  cells.shift();
+  if (cells.length > 0 && cells[cells.length - 1] === "") cells.pop();
+  return cells;
+};
+
+function findModuleTable(lines) {
+  let i = 0;
+  while (i < lines.length) {
+    if (!lines[i].startsWith("|")) { i++; continue; }
+    let j = i;
+    while (j < lines.length && lines[j].startsWith("|")) j++;
+    if (tableCells(lines[i])[0] === "Module") return { start: i, rows: lines.slice(i, j) };
+    i = j;
+  }
+  return null;
+}
+
+function substitutionMatrix(ctx) {
+  const subs = substitutionNames(ctx);
+  if (subs === null || subs.length === 0 || !ctx.prose.has(SUBSTITUTIONS_README)) return [];
+  const out = [];
+  const err = (line, msg) => out.push(finding("error", "substitution-matrix", SUBSTITUTIONS_README, line, msg));
+  const table = findModuleTable(ctx.prose.get(SUBSTITUTIONS_README).split("\n"));
+  if (table === null) {
+    err(null, "no table whose header starts with Module was found (FORMAT.md §4)");
+    return out;
+  }
+  const headerLine = table.start + 1;
+  const columns = tableCells(table.rows[0]).slice(1);
+  const declared = new Set(subs);
+  for (const c of columns) if (!declared.has(c)) err(headerLine, `matrix column "${c}" is not a declared substitution (FORMAT.md §4)`);
+  for (const s of [...declared]) if (!columns.includes(s)) err(headerLine, `matrix is missing column ${s} (FORMAT.md §4)`);
+  const ids = new Set(ctx.moduleIds);
+  const rowIds = new Set();
+  table.rows.slice(2).forEach((row, k) => {
+    const cells = tableCells(row);
+    const id = cells[0] ?? "";
+    const line = table.start + 3 + k;
+    rowIds.add(id);
+    if (!ids.has(id)) err(line, `matrix row "${id}" is not a declared module id (FORMAT.md §4)`);
+    columns.forEach((c, j) => {
+      const v = cells[j + 1] ?? "";
+      if (!["required", "optional", "-"].includes(v)) err(line, `matrix cell "${v}" for ${id}/${c} must be required, optional or - (FORMAT.md §4)`);
+    });
+  });
+  for (const id of ids) if (!rowIds.has(id)) err(headerLine, `matrix is missing row ${id} (FORMAT.md §4)`);
+  return out;
+}
+
 RULES.push(
   { name: "required-files", fn: requiredFiles, needsMeta: false },
   { name: "module-files", fn: moduleFiles, needsMeta: true },
@@ -258,6 +345,8 @@ RULES.push(
   { name: "scenario-cites-id", fn: scenarioCitesId, needsMeta: true },
   { name: "must-has-scenario", fn: mustHasScenario, needsMeta: true },
   { name: "should-has-scenario", fn: shouldHasScenario, needsMeta: true },
+  { name: "substitution-files", fn: substitutionFiles, needsMeta: true },
+  { name: "substitution-matrix", fn: substitutionMatrix, needsMeta: true },
 );
 
 export function isCalendarDate(s) {
