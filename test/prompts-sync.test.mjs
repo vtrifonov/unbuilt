@@ -16,15 +16,12 @@ function splitSkill(text) {
 for (const [verb, placeholder] of Object.entries(VERBS)) {
   const skillPath = path.join(ROOT, "skills", verb, "SKILL.md");
   const promptPath = path.join(ROOT, "prompts", `${verb}.md`);
-  // Temporary (Task 28 only): extract and build arrive in Tasks 29–30, so their cases skip with a reason until then.
-  // Task 30 deletes this constant and every `{ skip }` option below, so a missing skill is a failure from then on.
-  const skip = verb === "validate" || fs.existsSync(skillPath) ? false : `skills/${verb}/SKILL.md is written in a later task`;
-  test(`${verb}: frontmatter is exactly name and description (R-PKG-4)`, { skip }, () => {
+  test(`${verb}: frontmatter is exactly name and description (R-PKG-4)`, () => {
     const { fm } = splitSkill(fs.readFileSync(skillPath, "utf8"));
     assert.deepEqual(Object.keys(fm).sort(), ["description", "name"]);
     assert.equal(fm.name, verb); assert.ok(fm.description.length > 20);
   });
-  test(`${verb}: prompt equals header plus body (R-PKG-8, R-PKG-9)`, { skip }, () => {
+  test(`${verb}: prompt equals header plus body (R-PKG-8, R-PKG-9)`, () => {
     const skill = fs.readFileSync(skillPath, "utf8"); const prompt = fs.readFileSync(promptPath, "utf8");
     const { body } = splitSkill(skill);
     const lines = prompt.split("\n");
@@ -34,7 +31,7 @@ for (const [verb, placeholder] of Object.entries(VERBS)) {
     assert.equal(lines.slice(3).join("\n"), body);
     for (const t of [skill, prompt, body]) { assert.ok(t.endsWith("\n") && !t.endsWith("\n\n"), "exactly one trailing newline"); }
   });
-  test(`${verb}: body is harness-agnostic and explains <unbuilt-root> once (R-EXT-2, R-PKG-10)`, { skip }, () => {
+  test(`${verb}: body is harness-agnostic and explains <unbuilt-root> once (R-EXT-2, R-PKG-10)`, () => {
     const { body } = splitSkill(fs.readFileSync(skillPath, "utf8"));
     for (const d of DENY) assert.ok(!body.includes(d), d);
     const lines = body.split("\n").filter((l) => l.includes("${CLAUDE_PLUGIN_ROOT}"));
@@ -55,4 +52,8 @@ test("extract skill carries the R-EXT-43 worked example verbatim", () => {
   assert.ok(body.includes("name: ticket-sync"), "chosen name");
   assert.ok(body.includes("ticket-sync-unbuilt"), "renamed folder");
   assert.ok(body.includes("Syncs tickets from the issue tracker to the work tracker."), "rewritten summary");
+});
+test("build skill ends milestone 1 with the exact continue sentence (R-BLD-20)", () => {
+  const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8"));
+  assert.ok(body.includes("Say `continue` to start milestone 2."), "verbatim continue sentence");
 });
