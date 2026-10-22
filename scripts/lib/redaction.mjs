@@ -129,11 +129,11 @@ export const TLDS = [
   "internal", "lan", "corp", "intranet", "arpa",
 ];
 const BARE_HOST_RE = new RegExp(`(?<![@\\w.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:${TLDS.join("|")}))(?![\\w-])`, "gi");
-const URL_HOST_RE = /\b[a-z][a-z0-9+.-]*:\/\/([^/\s?#\[\]]+)/gi;
+const URL_HOST_RE = /\b[a-z][a-z0-9+.-]*:\/\/([^/\s?#\[\]"'<>()`]+)/gi;
 const IPV4_FULL_RE = new RegExp(`^${IPV4_RE.source}$`);
 
 // URL authorities (userinfo@host:port): the host is the part after the last "@" with any ":port" stripped.
-// A userinfo carrying a password ("user:password") is kept so it can be reported as a secret.
+// A userinfo carrying a non-placeholder password ("user:password") is kept so it can be reported as a secret.
 function urlAuthorities(text) {
   const out = [];
   for (const m of text.matchAll(URL_HOST_RE)) {
@@ -146,7 +146,7 @@ function urlAuthorities(text) {
     const hostStart = start + at + 1;
     const userinfo = at < 0 ? "" : authority.slice(0, at);
     const sep = userinfo.indexOf(":");
-    const hasPassword = sep >= 0 && sep < userinfo.length - 1;
+    const hasPassword = sep >= 0 && sep < userinfo.length - 1 && !isPlaceholderValue(userinfo.slice(sep + 1));
     const password = hasPassword ? { start, end: start + at, match: userinfo } : null;
     out.push({ start, end: start + authority.length, host, hostStart, password });
   }
@@ -201,8 +201,8 @@ function isPlaceholderValue(v) {
   return /[(<[]/.test(v);
 }
 
-function scanSecret(text) {
-  const found = [];
+function scanSecret(text, seeded = []) {
+  const found = [...seeded];
   for (const re of SECRET_SHAPES) {
     for (const m of text.matchAll(re)) found.push({ pattern: "secret", start: m.index, end: m.index + m[0].length, match: m[0] });
   }
@@ -238,7 +238,7 @@ function scanSpans(text, opts) {
   const authorities = urlAuthorities(text);
   // A userinfo@host inside a URL authority is reported once, as the hostname.
   const emails = scanEmail(text, o).filter((e) => !authorities.some((a) => overlaps(a, e)));
-  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails, authorities), ...scanSecret(text), ...scanUserinfoSecret(authorities)];
+  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails, authorities), ...scanSecret(text, scanUserinfoSecret(authorities))];
   return all.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 

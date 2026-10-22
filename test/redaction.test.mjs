@@ -159,6 +159,27 @@ test("url authority: password userinfo is a secret, host is after the last @ wit
   assert.deepEqual(c.map((x) => [x.pattern, x.match, x.column]), [["hostname", "build01.widgets-intranet.com", 15]]);
   assert.deepEqual(scanText(`https://user:${pw}@github.com/x`).map((x) => x.pattern), ["secret"]);
 });
+test("placeholder userinfo passwords are not secrets", () => {
+  for (const t of ["postgresql://postgres:postgres@localhost:5432/app", "postgres://user:password@localhost/db", "https://${USER}:${PASS}@github.com/o/r", "mongodb://<user>:<password>@localhost/db"]) {
+    assert.equal(hits(t, "secret").length, 0, t);
+  }
+  const pw = ["pw", "12345678"].join("");
+  assert.equal(hits(`postgres://user:${pw}@localhost/db`, "secret").length, 1);
+});
+test("url host stops at quotes, brackets and parentheses", () => {
+  for (const t of ["[repo](https://github.com)", '<a href="https://github.com">GitHub</a>', '{"u": "https://github.com"}']) {
+    assert.deepEqual(scanText(t), [], t);
+  }
+  const h = hits("[x](https://build01.widgets-intranet.com)", "hostname");
+  assert.equal(h.length, 1);
+  assert.equal(h[0].match, "build01.widgets-intranet.com");
+});
+test("a token in url userinfo yields one secret finding", () => {
+  const value = ["Ab12", "Cd34", "Ef56", "Gh78"].join("");
+  const t = `https://x-access-token:${value}@github.com/o/r.git`;
+  assert.equal(hits(t, "secret").length, 1);
+  assert.ok(!maskText(t).includes(value));
+});
 test("isHostAllowed normalises and unions with defaults", () => {
   assert.equal(isHostAllowed("github.com", { allowHosts: ["acme.com"], exactHosts: [] }), true);
   assert.equal(isHostAllowed("vpn.acme.com", { allowHosts: ["ACME.com"], exactHosts: [] }), true);
