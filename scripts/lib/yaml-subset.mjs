@@ -2,7 +2,30 @@ const KEY_RE = /^[a-z_][a-z0-9_]*$/;
 const INT_RE = /^-?(0|[1-9][0-9]*)$/;
 const BOOL_RE = /^(?:y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF)$/;
 const NULL_RE = /^(?:~|null|Null|NULL)$/;
-const MAP_ITEM_RE = /^[^ \t'"]*?:(?=[ \t]|$)/;
+const YAML11_INT_RE = /^(?:[-+]?(0b[01_]+|0o?[0-7_]+|0x[0-9a-fA-F_]+|[0-9][0-9_]*(:[0-5]?[0-9])+|[0-9][0-9_]*))$/;
+const YAML11_FLOAT_RE = /^(?:[-+]?(\.[0-9]+|[0-9][0-9_]*(\.[0-9_]*)?)([eE][-+]?[0-9]+)?|[-+]?[0-9][0-9_]*(:[0-5]?[0-9])+\.[0-9_]*|[-+]?\.(inf|Inf|INF)|\.(nan|NaN|NAN))$/;
+const YAML11_TIMESTAMP_RE = /^(?:[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([Tt ].*)?)$/;
+const RESOLVED_AS = [
+  [BOOL_RE, "boolean"],
+  [NULL_RE, "null"],
+  [YAML11_INT_RE, "integer"],
+  [YAML11_FLOAT_RE, "float"],
+  [YAML11_TIMESTAMP_RE, "timestamp"],
+  [/^<<$/, "merge key"],
+  [/^=$/, "value key"],
+];
+const FIRST_CHAR_FEATURE = {
+  "[": "flow collections",
+  "{": "flow collections",
+  "|": "block scalars",
+  ">": "block scalars",
+  "&": "anchors",
+  "*": "aliases",
+  "!": "tags",
+  "%": "directives",
+};
+const INDICATORS = new Set(["?", ":", ",", "]", "}", "#", "'", '"', "@", "`"]);
+const MAP_ITEM_RE =/^[^ \t'"]*?:(?=[ \t]|$)/;
 const NESTING = "nesting deeper than a list of flat maps is not allowed";
 
 function isBlankOrComment(rest) {
@@ -65,7 +88,24 @@ export function parseScalar(raw, lineNo) {
   if (v === "true") return { value: true };
   if (v === "false") return { value: false };
   if (INT_RE.test(v)) return { value: Number(v) };
+  const reject = rejectBare(v);
+  if (reject) return fail(`${reject}; quote this value`);
   return { value: v };
+}
+
+function rejectBare(v) {
+  const c = v[0];
+  if (FIRST_CHAR_FEATURE[c]) return `${FIRST_CHAR_FEATURE[c]} are not allowed`;
+  if (INDICATORS.has(c) || v === "-" || v.startsWith("- ")) {
+    return `value "${v}" starts with the YAML indicator "${c}"`;
+  }
+  if (v.includes(": ") || v.includes("\t#") || v.endsWith(":")) {
+    return `value "${v}" contains ": " or ends in ":"`;
+  }
+  for (const [re, kind] of RESOLVED_AS) {
+    if (re.test(v)) return `value "${v}" would be read as a ${kind} by YAML 1.1`;
+  }
+  return null;
 }
 
 function keyError(key) {
@@ -158,6 +198,8 @@ export function parse(text) {
     const lead = /^[ \t]*/.exec(line)[0];
     if (lead.includes("\t")) return err(n, "tab in indentation; use spaces");
     if (/^ *$/.test(line) || /^ *#/.test(line)) return;
+    if (/^(---|\.\.\.)( |$)/.test(line)) return err(n, "document markers (--- / ...) are not allowed");
+    if (line.startsWith("%")) return err(n, "directives (%) are not allowed");
     const indent = lead.length;
     const body = line.slice(indent);
 

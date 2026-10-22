@@ -114,6 +114,97 @@ test("rejects: nested list uses the nesting message", () => {
   }
 });
 
+const exceptionAccepts = [
+  ["true", "a: true\n", { a: true }],
+  ["false", "a: false\n", { a: false }],
+  ["zero", "a: 0\n", { a: 0 }],
+  ["negative integer", "a: -5\n", { a: -5 }],
+  ["ten", "a: 10\n", { a: 10 }],
+  ["integer list item", "p:\n  - -5\n", { p: [-5] }],
+];
+for (const [name, input, expected] of exceptionAccepts) {
+  test(`accepts subset exception: ${name}`, () => {
+    const r = parse(input);
+    assert.deepEqual(r.errors, []);
+    assert.deepEqual(r.value, expected);
+  });
+}
+
+const lineLevelRejects = [
+  ["document marker ---", "---\na: 1\n", /document marker/],
+  ["document marker ...", "a: 1\n...\n", /document marker/, 2],
+  ["directive", "%YAML 1.2\na: 1\n", /directive/],
+];
+for (const [name, input, feature, line = 1] of lineLevelRejects) {
+  test(`rejects: ${name}`, () => {
+    const r = parse(input);
+    assert.equal(r.value, null);
+    assert.equal(r.errors[0].line, line);
+    assert.match(r.errors[0].message, new RegExp(`^line ${line}: `));
+    assert.match(r.errors[0].message, feature);
+  });
+}
+
+const valueRejects = [
+  ["anchor", "&x 1", /anchor/],
+  ["alias", "*x", /alias/],
+  ["tag", "!tag 1", /tag/],
+  ["flow sequence", "[a, b]", /flow collection/],
+  ["flow mapping", "{a: 1}", /flow collection/],
+  ["block scalar |", "|", /block scalar/],
+  ["block scalar >", ">", /block scalar/],
+  ["block scalar >-", ">-", /block scalar/],
+  ["null", "null", /null/],
+  ["tilde", "~", /null/],
+  ["NULL", "NULL", /null/],
+  ["yes", "yes", /boolean/],
+  ["No", "No", /boolean/],
+  ["ON", "ON", /boolean/],
+  ["off", "off", /boolean/],
+  ["y", "y", /boolean/],
+  ["True", "True", /boolean/],
+  ["1.0", "1.0", /float/],
+  ["1e3", "1e3", /float/],
+  ["0x1F", "0x1F", /integer/],
+  ["007", "007", /integer/],
+  ["+1", "+1", /integer/],
+  ["1_000", "1_000", /integer/],
+  ["0b101", "0b101", /integer/],
+  ["1:20", "1:20", /integer/],
+  ["0o7", "0o7", /integer/],
+  ["1:20.5", "1:20.5", /float/],
+  [".inf", ".inf", /float/],
+  [".NaN", ".NaN", /float/],
+  ["2026-10-22", "2026-10-22", /timestamp/],
+  ["2026-1-5", "2026-1-5", /timestamp/],
+  ["<<", "<<", /merge key/],
+  ["=", "=", /value key/],
+  ["starts with @", "@x", /indicator "@"/],
+  ["starts with backtick", "`x`", /indicator "`"/],
+  ["starts with %", "%x", /directive/],
+  ["starts with *", "*", /alias/],
+  ["dash and space", "- x", /indicator "-"/],
+  ["lone dash", "-", /indicator "-"/],
+  ["contains colon-space", "a: b", /contains ": "/],
+  ["ends in colon", "Covers the following:", /ends in ":"/],
+];
+for (const [name, value, feature] of valueRejects) {
+  test(`rejects bare value: ${name}`, () => {
+    const r = parse(`k: ${value}\n`);
+    assert.equal(r.value, null);
+    assert.equal(r.errors[0].line, 1);
+    assert.match(r.errors[0].message, /^line 1: /);
+    assert.match(r.errors[0].message, feature);
+    assert.match(r.errors[0].message, /quote this value$/);
+  });
+}
+
+test("rejects bare value in a list item", () => {
+  const r = parse("p:\n  - yes\n");
+  assert.equal(r.errors[0].line, 2);
+  assert.match(r.errors[0].message, /boolean.*quote this value$/);
+});
+
 test("lines map records list-of-maps items and keys", () => {
   const r = parse(LIST_OF_MAPS);
   assert.equal(r.lines.get("m"), 1);
