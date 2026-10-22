@@ -1,0 +1,1 @@
+{ "rule": "required-files", "level": "error", "file": "constraints.md" }

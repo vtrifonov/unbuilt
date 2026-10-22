@@ -1,0 +1,1 @@
+{ "rule": "yaml-parse", "level": "error", "file": "unbuilt.yaml" }

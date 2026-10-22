@@ -203,3 +203,38 @@ test("unsupported version stops other rules (R-FMT-9)", (t) => {
   assert.deepEqual(j.result.errors, [{ rule: "yaml-fields", file: "unbuilt.yaml", line: 1, message: "format version 2 is not supported by this validator (supports 1); see CHANGELOG.md" }]);
 });
 test("SUPPORTED_FORMAT_VERSION is the integer 1 (R-VAL-9)", () => { assert.equal(SUPPORTED_FORMAT_VERSION, 1); assert.ok(Array.isArray(RULES)); });
+
+import { runFixture, has } from "./helpers.mjs";
+
+const ruleDirs = fs.readdirSync(FIXTURES).filter((n) => n !== "minimal-valid").sort();
+for (const rule of ruleDirs) {
+  test(`rule fixture: ${rule}`, (t) => {
+    const { expect, code, result } = runFixture(t, rule);
+    assert.equal(expect.rule, rule);
+    assert.ok(has(result, rule, expect.level, expect.file), JSON.stringify(result));
+    assert.equal(code, expect.level === "error" ? 1 : 0);
+  });
+}
+
+test("readme.md does not satisfy README.md; a directory named README.md does not either (R-VAL-12)", (t) => {
+  const a = runFixture(t, "required-files", { mutate: (d) => { fs.rmSync(path.join(d, "README.md")); fs.writeFileSync(path.join(d, "readme.md"), "# x"); } });
+  assert.ok(has(a.result, "required-files", "error", "README.md"));
+  const b = runFixture(t, "required-files", { mutate: (d) => { fs.rmSync(path.join(d, "README.md")); fs.mkdirSync(path.join(d, "README.md")); } });
+  assert.ok(has(b.result, "required-files", "error", "README.md"));
+});
+
+test("empty instance directory yields five required-files errors and no crash", (t) => {
+  const dir = makeTempDir(t);
+  const j = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(j.code, 1);
+  assert.deepEqual(j.result.errors.map((f) => f.file).sort(), ["BUILD.md", "README.md", "SPEC.md", "constraints.md", "unbuilt.yaml"]);
+});
+
+test("rule gating on YAML failure: no needsMeta rule fires (R-VAL-14)", (t) => {
+  const { result } = runFixture(t, "yaml-parse", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "\nContact alice@widgets-intranet.com.\n") });
+  const fired = new Set([...result.errors, ...result.warnings].map((f) => f.rule));
+  assert.ok(fired.has("yaml-parse"));
+  const gated = RULES.filter((r) => r.needsMeta).map((r) => r.name);
+  assert.ok(gated.includes("module-files"));
+  for (const name of gated) assert.ok(!fired.has(name), `${name} ran although unbuilt.yaml failed to parse`);
+});
