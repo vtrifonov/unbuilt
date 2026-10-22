@@ -222,6 +222,20 @@ test("allowed hosts match the punycode form of an IDN url host (amendment 8g)", 
   assert.deepEqual(scanText(`See https://${idn}/notes.`, { exactHosts: [idn] }), []);
   assert.equal(hits(`See https://${idn}/notes.`, "hostname").length, 1);
 });
+test("the punycode retry never allows a host that is not a plain IDN label sequence (correctness recheck 14)", () => {
+  const t = "Mirror: https://github.com\\ü.widgets-intranet.com/notes";
+  assert.equal(hits(t, "hostname").length, 1);
+  assert.equal(isHostAllowed("github.com\\ü.widgets-intranet.com"), false);
+  assert.equal(isHostAllowed("bücher.github.com"), true);
+});
+test("the bare-host overlap filter is linear: 1 MiB of URLs scans under 2 s (correctness recheck 15)", () => {
+  const text = "https://x.io/ ".repeat(Math.ceil(1048576 / 14));
+  const t0 = performance.now();
+  const n = scanText(text).length;
+  const ms = performance.now() - t0;
+  assert.ok(n > 0);
+  assert.ok(ms < 2000, `${ms.toFixed(0)} ms`);
+});
 test("a token in url userinfo yields one secret finding", () => {
   const value = ["Ab12", "Cd34", "Ef56", "Gh78"].join("");
   const t = `https://x-access-token:${value}@github.com/o/r.git`;

@@ -20,17 +20,30 @@ function hostListed(h, o) {
 }
 
 // Internal fast path: `o` must already come from normalizeOpts. A non-ASCII host is also compared in its
-// punycode form, the form `new URL` gives a reference_impl host (amendment 8g).
+// punycode form, the form `new URL` gives a reference_impl host (amendment 8g). The retry runs only on a plain
+// label sequence and must keep the label count, because the URL parser treats "\" as a path separator and
+// would turn "github.com\ü.widgets-intranet.com" into "github.com".
+const IDN_HOST_RE = /^[\p{L}\p{M}\p{N}.-]+$/u;
 function hostAllowedNormalized(host, o) {
   const h = host.toLowerCase();
   if (hostListed(h, o)) return true;
-  if (!/[^\x00-\x7f]/.test(h)) return false;
+  if (!/[^\x00-\x7f]/.test(h) || !IDN_HOST_RE.test(h)) return false;
   let puny;
   try { puny = new URL("http://" + h).hostname; } catch { return false; }
-  return puny !== h && hostListed(puny, o);
+  return puny !== h && puny.split(".").length === h.split(".").length && hostListed(puny, o);
 }
 
-const overlaps = (a, b) => a.start < b.end && b.start < a.end;
+// Overlap tests against a set of spans go through an offset mask, so each test costs the length of the tested
+// span rather than the number of spans; with disjoint tested spans a whole pass stays linear in the text.
+function spanMask(length, spans) {
+  const mask = new Uint8Array(length);
+  for (const s of spans) mask.fill(1, s.start, s.end);
+  return mask;
+}
+function masked(mask, span) {
+  for (let i = span.start; i < span.end; i++) if (mask[i] === 1) return true;
+  return false;
+}
 
 // Every scan regex is linear in the input: a match may start only at the beginning of a run of its
 // character class (left-boundary lookbehind), so an interior position fails in constant time.
@@ -68,11 +81,10 @@ function scanHomePath(text) {
     if (m[1] === "Public" || m[1] === "Default") continue;
     add(m);
   }
-  const drive = [...out];
+  const drive = spanMask(text.length, out);
   for (const m of text.matchAll(HOME_POSIX_RE)) {
     if (m[1] === "Shared") continue;
-    const span = { start: m.index, end: m.index + m[0].length };
-    if (drive.some((d) => overlaps(d, span))) continue;
+    if (masked(drive, { start: m.index, end: m.index + m[0].length })) continue;
     add(m);
   }
   for (const m of text.matchAll(HOME_TILDE_RE)) add(m);
@@ -190,10 +202,10 @@ function scanHostname(text, opts, emailSpans, authorities) {
     if (hostAllowedNormalized(host, opts)) continue;
     out.push({ pattern: "hostname", start: a.hostStart, end: a.hostStart + host.length, match: host });
   }
-  const taken = [...authorities, ...emailSpans];
+  const taken = spanMask(text.length, [...authorities, ...emailSpans]);
   for (const m of text.matchAll(BARE_HOST_RE)) {
     const span = { start: m.index, end: m.index + m[0].length };
-    if (taken.some((s) => overlaps(s, span))) continue;
+    if (masked(taken, span)) continue;
     if (hostAllowedNormalized(m[1], opts)) continue;
     out.push({ pattern: "hostname", ...span, match: m[1] });
   }
@@ -252,8 +264,9 @@ function scanSecret(text, seeded = []) {
     }
   }
   found.sort((a, b) => a.start - b.start || b.end - a.end);
+  // Kept spans are disjoint and sorted, so a candidate overlaps one of them only if it starts before the last end.
   const out = [];
-  for (const f of found) if (!out.some((o) => overlaps(o, f))) out.push(f);
+  for (const f of found) if (out.length === 0 || f.start >= out[out.length - 1].end) out.push(f);
   return out;
 }
 
@@ -278,7 +291,8 @@ function scanSpans(text, opts) {
   const o = normalizeOpts(opts);
   const authorities = urlAuthorities(text);
   // A userinfo@host inside a URL authority is reported once, as the hostname.
-  const emails = scanEmail(text, o).filter((e) => !authorities.some((a) => overlaps(a, e)));
+  const inAuthority = spanMask(text.length, authorities);
+  const emails = scanEmail(text, o).filter((e) => !masked(inAuthority, e));
   const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails, authorities), ...scanSecret(text, scanUserinfoSecret(authorities))];
   return all.sort((a, b) => a.start - b.start || a.end - b.end);
 }
