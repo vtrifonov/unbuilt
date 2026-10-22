@@ -940,3 +940,29 @@ test("leak hits are capped at 10,000 per run; each file past the cap gets one su
   assert.equal(summaries.length, 5);
   assert.ok(summaries.every((f) => f.message === "100 more matches not listed (FORMAT.md §7)" && !("line" in f)), JSON.stringify(summaries));
 });
+test("a 1 MiB colonless unbuilt.yaml line exits 1 within 2 s with a short yaml-parse line (security recheck 18)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  const unit = "a@b.io ";
+  fs.appendFileSync(path.join(dir, "unbuilt.yaml"), unit.repeat(Math.ceil(1048576 / unit.length)) + "\n");
+  const t0 = Date.now();
+  const r = runCli([dir, "--today", "2026-10-22"], { maxBuffer: 256 * 1048576 });
+  const ms = Date.now() - t0;
+  assert.equal(r.code, 1, r.stderr.slice(0, 300));
+  assert.ok(ms < 2000, `${ms} ms`);
+  const parse = r.stdout.split("\n").filter((l) => l.includes("yaml-parse"));
+  assert.equal(parse.length, 1);
+  assert.ok(parse[0].length < 200, `${parse[0].length} characters`);
+  assert.match(parse[0], /expected "key: value" in "a@… a@… .*…"/);
+});
+test("user text quoted in a finding message is clipped to 80 characters (security recheck 18)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  const longHost = "Bad".repeat(100);
+  const longTitle = "Save a note " + "again ".repeat(50);
+  fs.appendFileSync(path.join(dir, "unbuilt.yaml"), `public_hosts:\n  - ${longHost}\n`);
+  writeIn(dir, "modules/core/scenarios.md", readIn(dir, "modules/core/scenarios.md") + `\n## ${longTitle}\n\nNo ids here.\n`);
+  const { result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  const host = result.errors.find((f) => f.rule === "yaml-fields");
+  assert.equal(host.message, `public_hosts entry "${longHost.slice(0, 80)}…" is not a lowercase hostname or an IP literal (FORMAT.md §3)`);
+  const title = result.errors.find((f) => f.rule === "scenario-cites-id");
+  assert.equal(title.message, `scenario "${longTitle.slice(0, 80)}…" cites no declared requirement id (FORMAT.md §3)`);
+});

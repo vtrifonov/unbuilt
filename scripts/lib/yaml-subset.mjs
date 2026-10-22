@@ -1,3 +1,5 @@
+import { quoteText as q } from "./redaction.mjs";
+
 const KEY_RE = /^[a-z_][a-z0-9_]*$/;
 const INT_RE = /^-?(0|[1-9][0-9]*)$/;
 const BOOL_RE = /^(?:y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF)$/;
@@ -101,35 +103,36 @@ function rejectBare(v) {
   const c = v[0];
   if (FIRST_CHAR_FEATURE[c]) return `${FIRST_CHAR_FEATURE[c]} are not allowed`;
   if (INDICATORS.has(c) || /^-([ \t]|$)/.test(v)) {
-    return `value "${v}" starts with the YAML indicator "${c}"`;
+    return `value "${q(v)}" starts with the YAML indicator "${c}"`;
   }
   if (/:[ \t]/.test(v) || v.includes("\t#") || v.endsWith(":")) {
-    return `value "${v}" contains ": " or ends in ":"`;
+    return `value "${q(v)}" contains ": " or ends in ":"`;
   }
   for (const [re, kind] of RESOLVED_AS) {
-    if (re.test(v)) return `value "${v}" would be read as a ${kind} by YAML 1.1`;
+    if (re.test(v)) return `value "${q(v)}" would be read as a ${kind} by YAML 1.1`;
   }
   return null;
 }
 
 function keyError(key) {
-  if (!KEY_RE.test(key)) return `invalid key "${key}"; keys must match ^[a-z_][a-z0-9_]*$`;
+  if (!KEY_RE.test(key)) return `invalid key "${q(key)}"; keys must match ^[a-z_][a-z0-9_]*$`;
   if (BOOL_RE.test(key)) return `key "${key}" would be read as a boolean by YAML; rename it`;
   if (NULL_RE.test(key)) return `key "${key}" would be read as a null by YAML; rename it`;
   return null;
 }
 
+// Every user text quoted in a message goes through quoteText (q), which masks it and clips it to 80 characters.
 function parseKeyLine(text, n) {
   const fail = (msg) => ({ error: `line ${n}: ${msg}` });
   const colon = text.indexOf(":");
-  if (colon < 0) return fail(`expected "key: value" in "${text}"`);
+  if (colon < 0) return fail(`expected "key: value" in "${q(text)}"`);
   const key = text.slice(0, colon);
   const kErr = keyError(key);
   if (kErr) return fail(kErr);
   const rest = text.slice(colon + 1);
   if (isBlankOrComment(rest)) return { key, head: true };
   if (rest[0] !== " " || rest[1] === " " || rest[1] === "\t") {
-    return fail(`exactly one space must follow the colon in "${text.replace(/[ \t]+$/, "")}"`);
+    return fail(`exactly one space must follow the colon in "${q(text.replace(/[ \t]+$/, ""))}"`);
   }
   const s = parseScalar(rest.slice(1), n);
   if (s.error) return { key, error: s.error };
@@ -145,7 +148,7 @@ export function parse(text) {
 
   const closeList = () => {
     if (!list) return;
-    if (!list.sawItem) err(list.headLine, `"${list.key}:" has no value; a scalar or a list must follow`);
+    if (!list.sawItem) err(list.headLine, `"${q(list.key)}:" has no value; a scalar or a list must follow`);
     entries.set(list.key, list.items.map((x) => (x instanceof Map ? Object.fromEntries(x) : x)));
     list = null;
   };
@@ -155,7 +158,7 @@ export function parse(text) {
     if (kv.error && !kv.key) return errors.push({ line: n, message: kv.error });
     const map = list.currentMap;
     const prefix = `${list.key}[${list.items.length - 1}]`;
-    if (map.has(kv.key)) return err(n, `duplicate key "${kv.key}" (first at line ${lines.get(`${prefix}.${kv.key}`)})`);
+    if (map.has(kv.key)) return err(n, `duplicate key "${q(kv.key)}" (first at line ${lines.get(`${prefix}.${kv.key}`)})`);
     lines.set(`${prefix}.${kv.key}`, n);
     if (kv.head) return err(n, NESTING);
     if (kv.error) return errors.push({ line: n, message: kv.error });
@@ -225,7 +228,7 @@ export function parse(text) {
     closeList();
     const kv = parseKeyLine(line, n);
     if (kv.error && !kv.key) return errors.push({ line: n, message: kv.error });
-    if (lines.has(kv.key)) return err(n, `duplicate key "${kv.key}" (first at line ${lines.get(kv.key)})`);
+    if (lines.has(kv.key)) return err(n, `duplicate key "${q(kv.key)}" (first at line ${lines.get(kv.key)})`);
     lines.set(kv.key, n);
     if (kv.error) return errors.push({ line: n, message: kv.error });
     if (kv.head) {

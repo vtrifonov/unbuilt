@@ -338,7 +338,28 @@ export function maskText(text, opts = {}) {
     if (last && s.start < last.end) last.end = Math.max(last.end, s.end);
     else merged.push({ start: s.start, end: s.end });
   }
-  let out = text;
-  for (const s of merged.reverse()) out = out.slice(0, s.start) + maskMatch(text.slice(s.start, s.end)) + out.slice(s.end);
-  return out;
+  // One forward pass over the sorted spans, so the cost is linear in the text (security recheck 18).
+  const parts = [];
+  let prev = 0;
+  for (const s of merged) {
+    parts.push(text.slice(prev, s.start), maskMatch(text.slice(s.start, s.end)));
+    prev = s.end;
+  }
+  parts.push(text.slice(prev));
+  return parts.join("");
+}
+
+const QUOTE_MAX = 80;
+// User text quoted in a finding message is masked whole, then clipped to 80 characters plus "…", so a message stays
+// short and a leak straddling the cut is masked before it is cut (security recheck 18). Text of 80 characters or
+// fewer is returned as is; the message is masked with the instance's allowed hosts as the last step.
+export function quoteText(value) {
+  const s = String(value);
+  if (s.length <= QUOTE_MAX) return s;
+  const masked = maskText(s);
+  if (masked.length <= QUOTE_MAX) return masked;
+  let cut = masked.slice(0, QUOTE_MAX);
+  const last = cut.charCodeAt(cut.length - 1);
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1);
+  return cut + "…";
 }

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scanText, maskMatch, maskText, isHostAllowed, DEFAULT_ALLOW_HOSTS } from "../scripts/lib/redaction.mjs";
+import { scanText, maskMatch, maskText, quoteText, isHostAllowed, DEFAULT_ALLOW_HOSTS } from "../scripts/lib/redaction.mjs";
 const hits = (text, pattern, opts) => scanText(text, opts).filter((f) => f.pattern === pattern);
 
 test("email positives", () => {
@@ -311,6 +311,30 @@ test("leak scanning is linear: a 1 MB single-token run of each hot class scans u
     const ms = performance.now() - t0;
     assert.ok(ms < 2000, `${name}: ${ms.toFixed(0)} ms`);
   }
+});
+test("maskText is linear: a 1 MiB line of emails masks under 1 s (security recheck 18)", () => {
+  const unit = "a@b.io ";
+  const text = unit.repeat(Math.ceil(1048576 / unit.length));
+  const t0 = performance.now();
+  const out = maskText(text);
+  const ms = performance.now() - t0;
+  assert.ok(ms < 1000, `${ms.toFixed(0)} ms`);
+  assert.equal(out, "a@… ".repeat(Math.ceil(1048576 / unit.length)));
+});
+test("quoteText masks user text, then clips it to 80 characters plus … (security recheck 18)", () => {
+  assert.equal(quoteText("short value"), "short value");
+  assert.equal(quoteText("x".repeat(80)), "x".repeat(80));
+  assert.equal(quoteText("x".repeat(81)), "x".repeat(80) + "…");
+  assert.equal(quoteText(42), "42");
+  // A key straddling the cut is masked before the cut, so no fragment of it survives.
+  const key = A("AKIA", "IOSFODNN7EXAMPLE");
+  const out = quoteText("x".repeat(70) + " " + key + " tail");
+  assert.equal(out, "x".repeat(70) + " AK… tail");
+  const long = quoteText("y".repeat(69) + " " + key + " " + "z".repeat(100));
+  assert.ok(!long.includes("IOSF"), long);
+  assert.equal(long.length, 81);
+  // A surrogate pair is never split at the cut.
+  assert.equal(quoteText("x".repeat(79) + "😀" + "x"), "x".repeat(79) + "…");
 });
 test("isHostAllowed normalises and unions with defaults", () => {
   assert.equal(isHostAllowed("github.com", { allowHosts: ["acme.com"], exactHosts: [] }), true);

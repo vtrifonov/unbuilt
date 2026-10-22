@@ -1,4 +1,4 @@
-import { maskMatch } from "./redaction.mjs";
+import { maskMatch, quoteText as q } from "./redaction.mjs";
 import { countLines, countWords } from "./markdown.mjs";
 
 export const SUPPORTED_FORMAT_VERSION = 1;
@@ -27,7 +27,7 @@ export function moduleFiles(ctx) {
     if (typeof m.dir !== "string" || !ctx.dirs.has(m.dir) || seen.has(m.dir)) continue;
     seen.add(m.dir);
     for (const name of MODULE_FILES) {
-      if (!ctx.files.has(`${m.dir}/${name}`)) out.push(finding("error", "module-files", `${m.dir}/${name}`, null, `module ${m.id ?? m.index + 1} is missing ${name} (FORMAT.md §3)`));
+      if (!ctx.files.has(`${m.dir}/${name}`)) out.push(finding("error", "module-files", `${m.dir}/${name}`, null, `module ${q(m.id ?? m.index + 1)} is missing ${name} (FORMAT.md §3)`));
     }
   }
   return out;
@@ -63,12 +63,12 @@ export function yamlFields(ctx) {
   const err = (key, msg) => out.push(finding("error", "yaml-fields", "unbuilt.yaml", L(key), msg));
   const has = (k) => Object.hasOwn(meta, k);
   for (const k of Object.keys(meta)) {
-    if (!TOP_KEYS.includes(k)) out.push(finding("warning", "yaml-fields", "unbuilt.yaml", L(k), `unknown key ${k} is ignored (FORMAT.md §3)`));
+    if (!TOP_KEYS.includes(k)) out.push(finding("warning", "yaml-fields", "unbuilt.yaml", L(k), `unknown key ${q(k)} is ignored (FORMAT.md §3)`));
   }
   if (!has("unbuilt")) err("unbuilt", "unbuilt is required (FORMAT.md §3)");
   else if (meta.unbuilt !== 1) err("unbuilt", "unbuilt must be the integer 1 (FORMAT.md §2)");
   if (!has("name")) err("name", "name is required (FORMAT.md §3)");
-  else if (!isStr(meta.name) || meta.name.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(meta.name)) err("name", `name "${meta.name}" must be kebab-case of at most 64 characters (FORMAT.md §3)`);
+  else if (!isStr(meta.name) || meta.name.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(meta.name)) err("name", `name "${q(meta.name)}" must be kebab-case of at most 64 characters (FORMAT.md §3)`);
   if (!has("summary")) err("summary", "summary is required (FORMAT.md §3)");
   else if (!isStr(meta.summary) || meta.summary.length < 1 || meta.summary.length > 200) err("summary", "summary must be a string of 1 to 200 characters (FORMAT.md §3)");
   for (const key of ["origin", "reference_impl"]) {
@@ -86,9 +86,9 @@ export function yamlFields(ctx) {
   if (!has("has_ui")) err("has_ui", "has_ui is required (FORMAT.md §3)");
   else if (typeof meta.has_ui !== "boolean") err("has_ui", "has_ui must be true or false (FORMAT.md §3)");
   if (!has("platforms")) err("platforms", "platforms is required (FORMAT.md §3)");
-  else if (!Array.isArray(meta.platforms) || meta.platforms.length === 0) err("platforms", `platforms must be a non-empty list of lowercase tokens; "${Array.isArray(meta.platforms) ? "" : meta.platforms}" is not (FORMAT.md §3)`);
+  else if (!Array.isArray(meta.platforms) || meta.platforms.length === 0) err("platforms", `platforms must be a non-empty list of lowercase tokens; "${Array.isArray(meta.platforms) ? "" : q(meta.platforms)}" is not (FORMAT.md §3)`);
   else meta.platforms.forEach((v, i) => {
-    if (!isStr(v) || !/^[a-z0-9][a-z0-9-]*$/.test(v)) err(`platforms[${i}]`, `platforms must be a non-empty list of lowercase tokens; "${v}" is not (FORMAT.md §3)`);
+    if (!isStr(v) || !/^[a-z0-9][a-z0-9-]*$/.test(v)) err(`platforms[${i}]`, `platforms must be a non-empty list of lowercase tokens; "${q(v)}" is not (FORMAT.md §3)`);
   });
   for (const key of ["original_stack", "substitutions", "public_hosts"]) {
     if (has(key) && (!Array.isArray(meta[key]) || !meta[key].every(isStr))) err(key, `${key} must be a list of strings (FORMAT.md §3)`);
@@ -99,8 +99,8 @@ export function yamlFields(ctx) {
   if (Array.isArray(meta.public_hosts) && meta.public_hosts.every(isStr)) {
     const seen = new Set();
     meta.public_hosts.forEach((v, i) => {
-      if (!HOSTNAME_RE.test(v) && !isIpLiteral(v)) err(`public_hosts[${i}]`, `public_hosts entry "${v}" is not a lowercase hostname or an IP literal (FORMAT.md §3)`);
-      else if (seen.has(v)) err(`public_hosts[${i}]`, `public_hosts entry "${v}" is listed twice (FORMAT.md §3)`);
+      if (!HOSTNAME_RE.test(v) && !isIpLiteral(v)) err(`public_hosts[${i}]`, `public_hosts entry "${q(v)}" is not a lowercase hostname or an IP literal (FORMAT.md §3)`);
+      else if (seen.has(v)) err(`public_hosts[${i}]`, `public_hosts entry "${q(v)}" is listed twice (FORMAT.md §3)`);
       seen.add(v);
     });
   }
@@ -112,7 +112,7 @@ export function yamlFields(ctx) {
       else if (!isStr(m[key])) err(`modules[${i}].${key}`, `module ${i + 1} ${key} must be a string (FORMAT.md §3)`);
     }
     for (const key of Object.keys(m)) {
-      if (!MODULE_KEYS.includes(key)) out.push(finding("warning", "yaml-fields", "unbuilt.yaml", L(`modules[${i}].${key}`), `module ${i + 1} has unknown key ${key} (FORMAT.md §3)`));
+      if (!MODULE_KEYS.includes(key)) out.push(finding("warning", "yaml-fields", "unbuilt.yaml", L(`modules[${i}].${key}`), `module ${i + 1} has unknown key ${q(key)} (FORMAT.md §3)`));
     }
   });
   return out;
@@ -123,14 +123,14 @@ export function yamlEnums(ctx) {
   const meta = ctx.meta;
   const L = (key) => ctx.yaml.lines.get(key);
   const err = (key, msg) => out.push(finding("error", "yaml-enums", "unbuilt.yaml", L(key), msg));
-  if (isStr(meta.origin) && !ORIGINS.includes(meta.origin)) err("origin", `origin "${meta.origin}" is not one of ${ORIGINS.join(", ")} (FORMAT.md §3)`);
+  if (isStr(meta.origin) && !ORIGINS.includes(meta.origin)) err("origin", `origin "${q(meta.origin)}" is not one of ${ORIGINS.join(", ")} (FORMAT.md §3)`);
   if (Array.isArray(meta.modules)) {
     meta.modules.forEach((m, i) => {
-      if (isMap(m) && isStr(m.maturity) && !MATURITIES.includes(m.maturity)) err(`modules[${i}].maturity`, `maturity "${m.maturity}" of module ${i + 1} is not one of ${MATURITIES.join(", ")} (FORMAT.md §3)`);
+      if (isMap(m) && isStr(m.maturity) && !MATURITIES.includes(m.maturity)) err(`modules[${i}].maturity`, `maturity "${q(m.maturity)}" of module ${i + 1} is not one of ${MATURITIES.join(", ")} (FORMAT.md §3)`);
     });
   }
-  if (isStr(meta.original_effort) && !EFFORTS.includes(meta.original_effort)) err("original_effort", `original_effort "${meta.original_effort}" is not one of ${EFFORTS.join(", ")} (FORMAT.md §3)`);
-  if (isStr(meta.interview) && !INTERVIEWS.includes(meta.interview)) err("interview", `interview "${meta.interview}" is not one of ${INTERVIEWS.join(", ")} (FORMAT.md §3)`);
+  if (isStr(meta.original_effort) && !EFFORTS.includes(meta.original_effort)) err("original_effort", `original_effort "${q(meta.original_effort)}" is not one of ${EFFORTS.join(", ")} (FORMAT.md §3)`);
+  if (isStr(meta.interview) && !INTERVIEWS.includes(meta.interview)) err("interview", `interview "${q(meta.interview)}" is not one of ${INTERVIEWS.join(", ")} (FORMAT.md §3)`);
   return out;
 }
 
@@ -141,7 +141,7 @@ export function moduleIds(ctx) {
     if (m.id === null) continue;
     const line = ctx.yaml.lines.get(`modules[${m.index}].id`);
     const err = (msg) => out.push(finding("error", "module-ids", "unbuilt.yaml", line, msg));
-    if (!/^[A-Z]{2,8}$/.test(m.id)) err(`module id "${m.id}" must match ^[A-Z]{2,8}$ (FORMAT.md §3)`);
+    if (!/^[A-Z]{2,8}$/.test(m.id)) err(`module id "${q(m.id)}" must match ^[A-Z]{2,8}$ (FORMAT.md §3)`);
     else if (m.id === "INV") err("module id INV is reserved for invariants (FORMAT.md §3)");
     else if (seen.has(m.id)) err(`module id ${m.id} is declared twice (FORMAT.md §3)`);
     seen.add(m.id);
@@ -158,11 +158,11 @@ export function modulePaths(ctx) {
     if (m.dir === null) continue;
     const line = ctx.yaml.lines.get(`modules[${m.index}].path`);
     const err = (msg) => out.push(finding("error", "module-paths", "unbuilt.yaml", line, msg));
-    const label = m.id ?? m.index + 1;
+    const label = q(m.id ?? m.index + 1);
     // After trailing-slash removal the path is modules/ plus one kebab-case directory name (amendment 8c).
-    if (!MODULE_PATH_RE.test(m.dir)) err(`module ${label} path "${m.path}" must be modules/ followed by one kebab-case directory name (FORMAT.md §3)`);
-    else if (seen.has(m.dir)) err(`module path ${m.dir} is used by two modules (FORMAT.md §3)`);
-    else if (!ctx.dirs.has(m.dir)) err(`module ${label} path ${m.dir} is not a directory (FORMAT.md §3)`);
+    if (!MODULE_PATH_RE.test(m.dir)) err(`module ${label} path "${q(m.path)}" must be modules/ followed by one kebab-case directory name (FORMAT.md §3)`);
+    else if (seen.has(m.dir)) err(`module path ${q(m.dir)} is used by two modules (FORMAT.md §3)`);
+    else if (!ctx.dirs.has(m.dir)) err(`module ${label} path ${q(m.dir)} is not a directory (FORMAT.md §3)`);
     seen.add(m.dir);
   }
   for (const d of [...ctx.dirs].sort()) {
@@ -171,9 +171,10 @@ export function modulePaths(ctx) {
   return out;
 }
 
+// An id's number has no length limit, so an id quoted in a message is clipped like other user text.
 const attemptId = (a) => {
   const m = /\*\*([A-Za-z]{2,8})-(\d+)\*\*/.exec(a.raw);
-  return m ? `${m[1]}-${m[2]}` : `${a.prefix}-${a.num}`;
+  return q(m ? `${m[1]}-${m[2]}` : `${a.prefix}-${a.num}`);
 };
 
 export function idFormat(ctx) {
@@ -187,7 +188,7 @@ export function idFormat(ctx) {
       err(`declaration of ${attemptId(a)} must match "- **ID-n** (MUST|SHOULD|MAY) text" or "- **ID-n** retired: reason" (FORMAT.md §5)`);
     } else {
       const expected = a.file === "SPEC.md" ? ["INV"] : ctx.modules.filter((m) => m.id !== null && `${m.dir}/SPEC.md` === a.file).map((m) => m.id);
-      if (!expected.includes(a.exact.prefix)) err(`${a.exact.id} is declared in ${a.file} but only ${expected.join(" or ")} ids are declared there (FORMAT.md §5)`);
+      if (!expected.includes(a.exact.prefix)) err(`${q(a.exact.id)} is declared in ${a.file} but only ${expected.join(" or ")} ids are declared there (FORMAT.md §5)`);
     }
   }
   return out;
@@ -198,7 +199,7 @@ export function idUnique(ctx) {
   const first = new Map();
   for (const d of ctx.declarations) {
     const prev = first.get(d.id);
-    if (prev) out.push(finding("error", "id-unique", d.file, d.line, `${d.id} is already declared at ${prev.file}:${prev.line} (FORMAT.md §5)`));
+    if (prev) out.push(finding("error", "id-unique", d.file, d.line, `${q(d.id)} is already declared at ${prev.file}:${prev.line} (FORMAT.md §5)`));
     else first.set(d.id, d);
   }
   return out;
@@ -218,7 +219,7 @@ export function idRetiredForm(ctx) {
   const retired = new Set(ctx.declarations.filter((d) => d.retired).map((d) => d.id));
   for (const file of ctx.scenarioFiles) {
     for (const c of ctx.citations.get(file) ?? []) {
-      if (retired.has(c.id)) out.push(finding("error", "id-retired-form", file, c.line, `${c.id} is retired and must not be cited (FORMAT.md §5)`));
+      if (retired.has(c.id)) out.push(finding("error", "id-retired-form", file, c.line, `${q(c.id)} is retired and must not be cited (FORMAT.md §5)`));
     }
   }
   return out;
@@ -232,10 +233,10 @@ export function scenarioCitesId(ctx) {
     const sections = ctx.scenarios.filter((s) => s.file === file);
     if (sections.length === 0) out.push(finding("warning", "scenario-cites-id", file, null, `${file} has no scenario sections (FORMAT.md §3)`));
     for (const s of sections) {
-      if (!s.citations.some((c) => live.has(c.id))) out.push(finding("error", "scenario-cites-id", file, s.startLine, `scenario "${s.title}" cites no declared requirement id (FORMAT.md §3)`));
+      if (!s.citations.some((c) => live.has(c.id))) out.push(finding("error", "scenario-cites-id", file, s.startLine, `scenario "${q(s.title)}" cites no declared requirement id (FORMAT.md §3)`));
     }
     for (const c of ctx.citations.get(file) ?? []) {
-      if (!declared.has(c.id)) out.push(finding("error", "scenario-cites-id", file, c.line, `${c.id} is cited but not declared (FORMAT.md §5)`));
+      if (!declared.has(c.id)) out.push(finding("error", "scenario-cites-id", file, c.line, `${q(c.id)} is cited but not declared (FORMAT.md §5)`));
     }
   }
   return out;
@@ -244,7 +245,7 @@ export function scenarioCitesId(ctx) {
 function coverage(ctx, modality, level, rule) {
   const covered = new Set(ctx.scenarios.flatMap((s) => s.citations.map((c) => c.id)));
   return ctx.declarations.filter((d) => !d.retired && d.modality === modality && !covered.has(d.id))
-    .map((d) => finding(level, rule, d.file, d.line, `${d.id} is a ${modality} but no scenario cites it (FORMAT.md §5)`));
+    .map((d) => finding(level, rule, d.file, d.line, `${q(d.id)} is a ${modality} but no scenario cites it (FORMAT.md §5)`));
 }
 
 export const mustHasScenario = (ctx) => coverage(ctx, "MUST", "error", "must-has-scenario");
@@ -265,16 +266,16 @@ export function substitutionFiles(ctx) {
   const seen = new Set();
   subs.forEach((name, i) => {
     if (!KEBAB_RE.test(name)) {
-      out.push(finding("error", "substitution-files", "unbuilt.yaml", L(i), `substitution name "${name}" must be kebab-case (FORMAT.md §4)`));
+      out.push(finding("error", "substitution-files", "unbuilt.yaml", L(i), `substitution name "${q(name)}" must be kebab-case (FORMAT.md §4)`));
       return;
     }
     if (seen.has(name)) {
-      out.push(finding("error", "substitution-files", "unbuilt.yaml", L(i), `substitution ${name} is listed twice (FORMAT.md §4)`));
+      out.push(finding("error", "substitution-files", "unbuilt.yaml", L(i), `substitution ${q(name)} is listed twice (FORMAT.md §4)`));
       return;
     }
     seen.add(name);
     const file = `substitutions/${name}.md`;
-    if (!ctx.files.has(file)) out.push(finding("error", "substitution-files", file, null, `substitution ${name} has no file ${file} (FORMAT.md §4)`));
+    if (!ctx.files.has(file)) out.push(finding("error", "substitution-files", file, null, `substitution ${q(name)} has no file ${q(file)} (FORMAT.md §4)`));
   });
   if (subs.length > 0 && !ctx.files.has(SUBSTITUTIONS_README)) {
     out.push(finding("error", "substitution-files", SUBSTITUTIONS_README, null, "substitutions/README.md is required when substitutions is non-empty (FORMAT.md §4)"));
@@ -318,8 +319,8 @@ export function substitutionMatrix(ctx) {
   const headerLine = table.start + 1;
   const columns = tableCells(table.rows[0]).slice(1);
   const declared = new Set(subs);
-  for (const c of columns) if (!declared.has(c)) err(headerLine, `matrix column "${c}" is not a declared substitution (FORMAT.md §4)`);
-  for (const s of [...declared]) if (!columns.includes(s)) err(headerLine, `matrix is missing column ${s} (FORMAT.md §4)`);
+  for (const c of columns) if (!declared.has(c)) err(headerLine, `matrix column "${q(c)}" is not a declared substitution (FORMAT.md §4)`);
+  for (const s of [...declared]) if (!columns.includes(s)) err(headerLine, `matrix is missing column ${q(s)} (FORMAT.md §4)`);
   const ids = new Set(ctx.moduleIds);
   const rowIds = new Set();
   table.rows.slice(2).forEach((row, k) => {
@@ -327,13 +328,13 @@ export function substitutionMatrix(ctx) {
     const id = cells[0] ?? "";
     const line = table.start + 3 + k;
     rowIds.add(id);
-    if (!ids.has(id)) err(line, `matrix row "${id}" is not a declared module id (FORMAT.md §4)`);
+    if (!ids.has(id)) err(line, `matrix row "${q(id)}" is not a declared module id (FORMAT.md §4)`);
     columns.forEach((c, j) => {
       const v = cells[j + 1] ?? "";
-      if (!["required", "optional", "-"].includes(v)) err(line, `matrix cell "${v}" for ${id}/${c} must be required, optional or - (FORMAT.md §4)`);
+      if (!["required", "optional", "-"].includes(v)) err(line, `matrix cell "${q(v)}" for ${q(id)}/${q(c)} must be required, optional or - (FORMAT.md §4)`);
     });
   });
-  for (const id of ids) if (!rowIds.has(id)) err(headerLine, `matrix is missing row ${id} (FORMAT.md §4)`);
+  for (const id of ids) if (!rowIds.has(id)) err(headerLine, `matrix is missing row ${q(id)} (FORMAT.md §4)`);
   return out;
 }
 
@@ -345,7 +346,7 @@ export function evidenceDates(ctx) {
     const m = /^evidence\/([^/]+\.md)$/.exec(p);
     if (!m) continue;
     const err = (line, msg) => out.push(finding("error", "evidence-dates", p, line, msg));
-    if (!EVIDENCE_NAME_RE.test(m[1])) err(null, `evidence file name "${m[1]}" must be YYYY-MM-DD-slug.md (FORMAT.md §4)`);
+    if (!EVIDENCE_NAME_RE.test(m[1])) err(null, `evidence file name "${q(m[1])}" must be YYYY-MM-DD-slug.md (FORMAT.md §4)`);
     if (!ctx.texts.has(p)) continue;
     const lines = ctx.texts.get(p).split("\n").map((l) => l.replace(/\r$/, ""));
     let i = 0;
@@ -365,7 +366,7 @@ export function evidenceDates(ctx) {
       const f = found[key];
       if (!f) continue;
       if (isCalendarDate(f.value)) valid[key] = f;
-      else err(f.line, `${key}: ${f.value} is not a calendar date (FORMAT.md §4)`);
+      else err(f.line, `${key}: ${q(f.value)} is not a calendar date (FORMAT.md §4)`);
     }
     if (valid.Checked && valid.Expires) {
       const c = valid.Checked.value;
