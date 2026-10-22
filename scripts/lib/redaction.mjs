@@ -11,7 +11,11 @@ function normalizeOpts(opts = {}) {
 }
 
 export function isHostAllowed(host, opts) {
-  const o = opts && opts.allowHosts && opts.exactHosts ? opts : normalizeOpts(opts);
+  return hostAllowedNormalized(host, normalizeOpts(opts));
+}
+
+// Internal fast path: `o` must already come from normalizeOpts.
+function hostAllowedNormalized(host, o) {
   const h = host.toLowerCase();
   if (o.exactHosts.includes(h)) return true;
   return o.allowHosts.some((a) => h === a || h.endsWith("." + a));
@@ -36,7 +40,7 @@ function scanEmail(text, opts) {
     const local = m[0].slice(0, at);
     const domain = m[0].slice(at + 1);
     if (isEmailDomainAllowed(domain)) continue;
-    if (local === "git" && isHostAllowed(domain, opts)) continue;
+    if (local === "git" && hostAllowedNormalized(domain, opts)) continue;
     out.push({ pattern: "email", start: m.index, end: m.index + m[0].length, match: m[0] });
   }
   return out;
@@ -85,7 +89,7 @@ function scanIpv4(text, opts) {
   return out;
 }
 
-const IPV6_CANDIDATE_RE = /(?<![\w:.])[0-9a-f:]*:[0-9a-f:]*(?:%[a-z0-9]+)?(?![\w:.])/gi;
+const IPV6_CANDIDATE_RE = /(?<![\w:.])[0-9a-f:]*:[0-9a-f:]*(?:%[a-z0-9]+)?(?![\w:]|\.[\w])/gi;
 
 function classifyIpv6(candidate) {
   const addr = candidate.split("%")[0];
@@ -128,23 +132,33 @@ const BARE_HOST_RE = new RegExp(`(?<![@\\w.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z
 const URL_HOST_RE = /\b[a-z][a-z0-9+.-]*:\/\/([^/\s:?#\[\]]+)/gi;
 const IPV4_FULL_RE = new RegExp(`^${IPV4_RE.source}$`);
 
-function scanHostname(text, opts, emailSpans) {
+// URL authorities (userinfo@host) with the host part after the last "@".
+function urlAuthorities(text) {
   const out = [];
-  const urlSpans = [];
   for (const m of text.matchAll(URL_HOST_RE)) {
-    const host = m[1];
-    const start = m.index + m[0].length - host.length;
-    const span = { start, end: start + host.length };
-    if (!host || IPV4_FULL_RE.test(host) || host.startsWith("[")) continue;
-    urlSpans.push(span);
-    if (isHostAllowed(host, opts)) continue;
-    out.push({ pattern: "hostname", ...span, match: host });
+    const authority = m[1];
+    const start = m.index + m[0].length - authority.length;
+    const at = authority.lastIndexOf("@");
+    const host = authority.slice(at + 1);
+    const hostStart = start + at + 1;
+    out.push({ start, end: start + authority.length, host, hostStart });
   }
-  const taken = [...urlSpans, ...emailSpans];
+  return out;
+}
+
+function scanHostname(text, opts, emailSpans, authorities) {
+  const out = [];
+  for (const a of authorities) {
+    const { host } = a;
+    if (!host || IPV4_FULL_RE.test(host) || host.startsWith("[")) continue;
+    if (hostAllowedNormalized(host, opts)) continue;
+    out.push({ pattern: "hostname", start: a.hostStart, end: a.hostStart + host.length, match: host });
+  }
+  const taken = [...authorities, ...emailSpans];
   for (const m of text.matchAll(BARE_HOST_RE)) {
     const span = { start: m.index, end: m.index + m[0].length };
     if (taken.some((s) => overlaps(s, span))) continue;
-    if (isHostAllowed(m[1], opts)) continue;
+    if (hostAllowedNormalized(m[1], opts)) continue;
     out.push({ pattern: "hostname", ...span, match: m[1] });
   }
   return out;
@@ -166,7 +180,7 @@ export const SECRET_SHAPES = [
   /\bnpm_[A-Za-z0-9]{36}\b/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
 ];
-const GENERIC_SECRET_RE = /\b(pass(word|wd)?|secret|token|api[_-]?key)\s*[:=]\s*["']?([^\s"'<>]{8,})/gi;
+const GENERIC_SECRET_RE = /(?<![A-Za-z0-9])(pass(word|wd)?|secret|token|api[_-]?key)["']?\s*[:=]\s*["']?([^\s"'<>]{8,})/gi;
 
 function isPlaceholderValue(v) {
   if (v.startsWith("<") || v.startsWith("$")) return true;
@@ -210,8 +224,10 @@ function position(starts, offset) {
 
 function scanSpans(text, opts) {
   const o = normalizeOpts(opts);
-  const emails = scanEmail(text, o);
-  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails), ...scanSecret(text)];
+  const authorities = urlAuthorities(text);
+  // A userinfo@host inside a URL authority is reported once, as the hostname.
+  const emails = scanEmail(text, o).filter((e) => !authorities.some((a) => overlaps(a, e)));
+  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails, authorities), ...scanSecret(text)];
   return all.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
@@ -225,13 +241,14 @@ export function maskMatch(m) {
 }
 
 export function maskText(text, opts = {}) {
-  const spans = scanSpans(text, opts).sort((a, b) => b.start - a.start);
-  let out = text;
-  let limit = Infinity;
-  for (const s of spans) {
-    if (s.end > limit) continue;
-    out = out.slice(0, s.start) + maskMatch(s.match) + out.slice(s.end);
-    limit = s.start;
+  // Merge overlapping findings into their union so no part of an outer span survives a nested one.
+  const merged = [];
+  for (const s of scanSpans(text, opts)) {
+    const last = merged[merged.length - 1];
+    if (last && s.start < last.end) last.end = Math.max(last.end, s.end);
+    else merged.push({ start: s.start, end: s.end });
   }
+  let out = text;
+  for (const s of merged.reverse()) out = out.slice(0, s.start) + maskMatch(text.slice(s.start, s.end)) + out.slice(s.end);
   return out;
 }

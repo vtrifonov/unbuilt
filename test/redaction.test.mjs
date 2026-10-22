@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { scanText, maskMatch, maskText, DEFAULT_ALLOW_HOSTS } from "../scripts/lib/redaction.mjs";
+import { scanText, maskMatch, maskText, isHostAllowed, DEFAULT_ALLOW_HOSTS } from "../scripts/lib/redaction.mjs";
 const hits = (text, pattern, opts) => scanText(text, opts).filter((f) => f.pattern === pattern);
 
 test("email positives", () => {
@@ -109,4 +109,45 @@ test("secret negatives", () => {
     "const token = line.slice(start);", "let secret = /-----BEGIN/", "password: ********", "token = $TOKEN_FROM_ENV", "AKIA short", "sk-short", "secret: 1234567"]) {
     assert.equal(hits(t, "secret").length, 0, t);
   }
+});
+test("maskText masks the union of overlapping findings (nested secret)", () => {
+  const withEmail = A("to", "ken=") + "ab12@widgets-intranet.com/x9QzTailVal";
+  assert.ok(scanText(withEmail).length >= 2);
+  const m1 = maskText(withEmail);
+  assert.equal(m1, "to…");
+  for (const part of ["ab12", "widgets", "x9Qz", "TailVal"]) assert.ok(!m1.includes(part), part);
+  const withIp = "see " + A("pass", "word=") + "10.20.30.40QzTailVal end";
+  assert.deepEqual(scanText(withIp).map((f) => f.pattern).sort(), ["ipv4", "secret"]);
+  const m2 = maskText(withIp);
+  assert.equal(m2, "see pa… end");
+  for (const part of ["10.20", "30.40", "QzTailVal"]) assert.ok(!m2.includes(part), part);
+});
+test("generic credential keys after _ or - and JSON-quoted keys (assembled)", () => {
+  const positives = [
+    A("DB_PASS", "WORD=") + "Summer" + "2026" + ".Admin",
+    A("access_to", "ken = ") + "a1b2c3" + "d4e5f6g7",
+    A("client_sec", "ret: ") + "a1b2c3" + "d4e5f6g7",
+    '{"' + A("pass", "word") + '": "' + "Summer" + "2026" + '.Admin"}',
+  ];
+  for (const t of positives) assert.equal(hits(t, "secret").length, 1, t.slice(0, 10));
+  assert.equal(hits("mypassword=" + "Summer" + "2026" + ".Admin", "secret").length, 0);
+});
+test("ipv6 at the end of a sentence", () => {
+  const h = hits("Connects to fd12:3456:789a::1.", "ipv6");
+  assert.equal(h.length, 1);
+  assert.equal(h[0].match, "fd12:3456:789a::1");
+  for (const t of ["std::vector.", "Add::Face.", "at 12:30:45.", "fd12:3456:789a::1.x"]) assert.equal(hits(t, "ipv6").length, 0, t);
+});
+test("url with userinfo yields one hostname finding on the host", () => {
+  const f = scanText("https://alice@build01.widgets-intranet.com/");
+  assert.deepEqual(f.map((x) => x.pattern), ["hostname"]);
+  assert.equal(f[0].match, "build01.widgets-intranet.com");
+  assert.equal(f[0].column, 15);
+  assert.deepEqual(scanText("https://alice@github.com/x"), []);
+});
+test("isHostAllowed normalises and unions with defaults", () => {
+  assert.equal(isHostAllowed("github.com", { allowHosts: ["acme.com"], exactHosts: [] }), true);
+  assert.equal(isHostAllowed("vpn.acme.com", { allowHosts: ["ACME.com"], exactHosts: [] }), true);
+  assert.equal(isHostAllowed("Tool.Example-Public.org", { allowHosts: [], exactHosts: ["tool.EXAMPLE-public.org"] }), true);
+  assert.equal(isHostAllowed("other.widgets.com", { allowHosts: ["acme.com"], exactHosts: [] }), false);
 });
