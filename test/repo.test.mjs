@@ -130,3 +130,19 @@ test("example caps, inferred MUSTs, facts and denylist (R-EX-3, R-EX-6, R-EX-7, 
   for (const vendor of ["Google", "Microsoft", "Amazon", "Slack", "Atlassian"]) assert.ok(!all.toLowerCase().includes(vendor.toLowerCase()), vendor);
   assert.ok(!fs.existsSync(path.join(EXAMPLE, "retrospective.md")));
 });
+
+test("README parts, install form and size (R-DOC-1, R-DOC-3, R-PKG-6, R-PKG-7)", () => {
+  const md = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+  const titles = ["What an unbuilt repo is", "The three verbs", "Install", "Quick start", "The example", "Prior art and positioning", "FAQ", "Discovery", "License"];
+  let last = -1; for (const t of titles) { const at = md.indexOf(`\n## ${t}\n`); assert.ok(at > last, t); last = at; }
+  assert.ok(md.includes("claude plugin marketplace add vtrifonov/unbuilt") && md.includes("claude plugin install unbuilt@unbuilt"));
+  for (const v of ["extract", "build", "validate"]) { assert.ok(md.includes(`/unbuilt:${v}`)); assert.ok(md.includes(`prompts/${v}.md`)); }
+  assert.doesNotMatch(md, /(?<![\w:.])\/(extract|build|validate)\b/); assert.doesNotMatch(md, /unbuilt-(extract|build|validate)/);
+  assert.ok(md.includes("examples/clipjar") && md.includes("https://github.com/vtrifonov/clipjar") && md.includes("`unbuilt`"));
+  assert.ok(countWords(md) < 1500);
+});
+test("CHANGELOG sections (R-DOC-4)", () => {
+  const md = fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8");
+  assert.ok(md.indexOf("\n## Format\n") > 0 && md.indexOf("\n## Plugin\n") > md.indexOf("\n## Format\n"));
+  assert.match(md, /### 1 /); assert.match(md, /### 0\.1\.0 /);
+});
