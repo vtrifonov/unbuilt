@@ -3,7 +3,7 @@ name: build
 description: Build a new implementation from an unbuilt instance, one milestone at a time, after the builder approves a plan. Use when asked to build from an unbuilt repo, implement this unbuilt spec, or continue the unbuilt build.
 ---
 
-You turn an unbuilt instance into a new implementation in the builder's own environment. You validate the instance, read it, ask the builder the questions it leaves open, write a plan, and after the builder's go-ahead implement milestone 1 and stop. Each later milestone runs only when the builder says `continue`.
+You turn an unbuilt instance into a new implementation in the builder's own environment. You validate the instance, read it, ask the builder the questions it leaves open, write a plan, and after the builder's go-ahead implement milestone 1 and stop. Each later milestone runs only when the builder says `continue`. Running the skill again in a built project checks the instance for changes and plans an update.
 
 ## Inputs and outputs
 
@@ -160,20 +160,72 @@ If the milestone failed, `continue` re-runs it, because it is still the next unc
 
 ## Later milestones
 
-- When the builder says `continue`, run exactly the next unchecked milestone with the flow of steps 6 and 7, then stop. Run one milestone per `continue`. End each report with the same sentence naming the next milestone, such as "Say `continue` to start milestone 3."; after the last milestone, say that every milestone is done instead.
+- When the builder says `continue`, run exactly the next unchecked milestone with the flow of steps 6 and 7, then stop. Run one milestone per `continue`. End each report with the same sentence naming the next milestone, such as "Say `continue` to start milestone 3.". The next unchecked milestone may be an update milestone, named the same way, for example:
+
+Say `continue` to start update 1.
+
+A split update uses the part letter, such as "update 2b". After the last milestone, say that every milestone is done instead.
 - Do not ask the plan questions again unless the builder changes a substitution, the module set or the stack. If they do, update `PLAN.md` and show it again before writing any further code.
-- In a new session, in a project with a matching `PLAN.md`: read it, report which milestones are done, and wait for `continue`. Before running the next milestone, re-acquire the instance from `unbuilt-source`, with a fresh shallow fetch of `unbuilt-revision` for a git source, and re-run step 1. If the source's current revision differs from `unbuilt-revision`, tell the builder and ask whether to stay on the recorded revision or re-plan against the new one. If the source cannot be re-acquired, stop and ask the builder where the instance is.
-- When every milestone is done and the builder says `continue`, report completion with a coverage summary and write nothing.
+- In a new session, in a project with a matching `PLAN.md`: read `PLAN.md`, report which milestones are done, then run the update check of "Updating a build". With no change, wait for `continue`.
+- When every milestone is done, the builder says `continue` and the update check finds no change, report completion with a coverage summary and write nothing. The summary lists every covered ID by milestone, the "Not built" list and the departures.
+
+## Updating a build
+
+### Order of checks
+
+Any `/unbuilt:build <instance>` in a project with a matching `PLAN.md`, and any `continue`, runs this before anything else, in this order:
+
+1. The URL and path guards and the nesting check.
+2. The `.unbuilt` checks and recovery.
+3. Acquire and snapshot.
+4. Validate the snapshot.
+5. The name check. A snapshot `name` that differs from `unbuilt-instance` stops as the project-directory rule says, until the builder edits the header.
+6. The diff.
+
+The only exception is scripts that cannot run, as in step 1.
+
+### Validate first
+
+Validate the new revision before you compare or plan against it. Warnings are listed and do not block. When the snapshot fails, the validator reports errors on the snapshot, or the diff exits 2 with stderr that does not start with `old: `, list the errors as quoted data and say the update is blocked until the cause is fixed. Leave `PLAN.md` and the baseline untouched. If unchecked milestones remain and a baseline exists, offer to continue on it.
+
+### Detect
+
+Compare the baseline with the snapshot:
+
+```
+node <unbuilt-root>/scripts/diff.mjs '<project-dir>/.unbuilt/baseline' '<scratch>/snapshot' --json
+```
+
+Read that output for planning. Run the same command without `--json` for the summary shown to the builder.
+
+- Exit 0 is no change and exit 1 is change. A commit hash difference alone never triggers an update.
+- Exit 2 with a baseline: branch only on the fixed stderr prefix. When it starts with `old: `, the baseline cannot be compared: tell the builder, quote stderr and take the legacy flow. Otherwise handle it as in "Validate first".
+- With no change, behave as before.
+- With a change, show the summary and ask one question: update now (the default) or stay on the recorded revision.
+- Stay writes nothing. The next unchecked milestone runs against the baseline, or completion is reported.
+- After a stay, a later `continue` in the same session with the same diff document says the build stays on the recorded revision and proceeds. A different diff, or a new session, asks again.
+
+### Approval
+
+Show the revised `PLAN.md` as a diff against the current one and stop. Write nothing before the builder's explicit go-ahead. If they decline, write nothing and ask again on the next `continue`. On go-ahead, rewrite the header and write in the write order of "The baseline". Do not start the update milestone. End with the continue sentence naming it. If this run's snapshot no longer exists, write nothing and run the update check again.
 
 ## Stop conditions
 
-Stop, say why, and write no code when:
+Stop, say why, and write no code, plan or baseline when:
 
 - validation reports errors;
 - a MUST in `constraints.md` cannot be met;
 - a substitution point has no workable option and the builder offers none;
 - the project directory is non-empty and not a build of this instance;
-- the instance's `unbuilt` version is unsupported.
+- the instance's `unbuilt` version is unsupported;
+- a URL, path or project-directory guard fails;
+- the project and instance directories nest;
+- an `.unbuilt` entry fails its type check;
+- the snapshot fails, has validation errors, or the diff exits 2 with stderr that does not start with `old: `;
+- a MUST constraint cannot be met after the change;
+- the builder chooses stay on a departure that became a MUST.
+
+A script that cannot run at all is not a stop.
 
 ## What you never do
 
