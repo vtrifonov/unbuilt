@@ -667,6 +667,13 @@ test("budgets accept exactly the limit (R-FMT-37: at most N)", (t) => {
   assert.ok(!at.result.errors.some((f) => f.rule === "budget-total-words"));
   const over = runFixture(t, "budget-total-words", { mutate: wordsTo(60001) });
   assert.ok(over.result.errors.some((f) => f.rule === "budget-total-words" && f.message.includes("60001 words")));
+  // R-FMT-38: words inside HTML comments and code fences count. 59,990 visible words plus 11 hidden words
+  // (6 in a comment, 5 in a fence) and their 4 marker tokens make 60,005; counting only visible prose gives 59,990.
+  const hidden = runFixture(t, "budget-total-words", { mutate: (d) => {
+    wordsTo(59990)(d);
+    fs.appendFileSync(path.join(d, "notes.md"), "<!-- a b c d e f -->\n```\ng h i j k\n```\n");
+  } });
+  assert.ok(hidden.result.errors.some((f) => f.rule === "budget-total-words" && f.message.includes("60005 words")), JSON.stringify(hidden.result.errors));
 });
 
 test("each generated budget fixture fires only its own rule (plan decision 9)", (t) => {
