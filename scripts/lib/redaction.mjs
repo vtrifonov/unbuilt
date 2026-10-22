@@ -150,6 +150,47 @@ function scanHostname(text, opts, emailSpans) {
   return out;
 }
 
+export const SECRET_SHAPES = [
+  /-----BEGIN [A-Z ]+-----/g,
+  /\bAKIA[0-9A-Z]{16}\b/g,
+  /\bASIA[0-9A-Z]{16}\b/g,
+  /\bghp_[A-Za-z0-9]{36}\b/g,
+  /\bgh[ousr]_[A-Za-z0-9]{36}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}/g,
+  /\bsk-[A-Za-z0-9_-]{20,}/g,
+  /\b[rs]k_(live|test)_[A-Za-z0-9]{10,}/g,
+  /\bxox[abeoprs]-[A-Za-z0-9-]{10,}/g,
+  /\bxapp-[A-Za-z0-9-]{10,}/g,
+  /\bAIza[0-9A-Za-z_-]{35}\b/g,
+  /\bglpat-[A-Za-z0-9_-]{20,}/g,
+  /\bnpm_[A-Za-z0-9]{36}\b/g,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+];
+const GENERIC_SECRET_RE = /\b(pass(word|wd)?|secret|token|api[_-]?key)\s*[:=]\s*["']?([^\s"'<>]{8,})/gi;
+
+function isPlaceholderValue(v) {
+  if (v.startsWith("<") || v.startsWith("$")) return true;
+  if (/^[a-z]+([-_][a-z]+)*$/.test(v)) return true;
+  if (/^(.)\1+$/.test(v)) return true;
+  if (!/\d/.test(v)) return true;
+  return /[(<[]/.test(v);
+}
+
+function scanSecret(text) {
+  const found = [];
+  for (const re of SECRET_SHAPES) {
+    for (const m of text.matchAll(re)) found.push({ pattern: "secret", start: m.index, end: m.index + m[0].length, match: m[0] });
+  }
+  for (const m of text.matchAll(GENERIC_SECRET_RE)) {
+    if (isPlaceholderValue(m[3])) continue;
+    found.push({ pattern: "secret", start: m.index, end: m.index + m[0].length, match: m[0] });
+  }
+  found.sort((a, b) => a.start - b.start || b.end - a.end);
+  const out = [];
+  for (const f of found) if (!out.some((o) => overlaps(o, f))) out.push(f);
+  return out;
+}
+
 function lineStarts(text) {
   const starts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
@@ -170,7 +211,7 @@ function position(starts, offset) {
 function scanSpans(text, opts) {
   const o = normalizeOpts(opts);
   const emails = scanEmail(text, o);
-  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails)];
+  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails), ...scanSecret(text)];
   return all.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 

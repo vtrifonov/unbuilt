@@ -81,3 +81,32 @@ test("no double report between email and hostname (R-VAL-28)", () => {
   const g = scanText("https://build01.widgets-intranet.com/x");
   assert.deepEqual(g.map((x) => x.pattern), ["hostname"]);
 });
+const A = (p, body) => p + body;               // assemble at runtime (R-TST-9)
+const alnum36 = "a1".repeat(18);               // 36 chars with digits
+test("secret positives (assembled)", () => {
+  const positives = [
+    "key = AKIAIOSFODNN7EXAMPLE",
+    A("AS", "IA") + "ABCDEFGHIJKLMN12",
+    A("gh", "p_") + alnum36, A("gh", "o_") + alnum36, A("gh", "s_") + alnum36,
+    A("github_", "pat_") + "a1".repeat(12),
+    A("sk", "-") + "a1".repeat(12), A("sk_", "live_") + "a1b2c3d4e5f6", A("rk_", "live_") + "a1b2c3d4e5f6", A("sk_", "test_") + "a1b2c3d4e5f6",
+    A("xox", "b-") + "1234-abcd-5678", A("xox", "e-") + "1234-abcd-5678", A("xox", "r-") + "1234-abcd-5678", A("xox", "s-") + "1234-abcd-5678", A("xap", "p-") + "1234-abcd-5678",
+    A("AI", "za") + "A1".repeat(17) + "A",
+    A("gl", "pat-") + "a1".repeat(11),
+    A("np", "m_") + alnum36,
+    A("ey", "J") + "a1".repeat(6) + "." + "b2".repeat(6) + "." + "c3".repeat(6),
+    "-----BEGIN " + "RSA PRIVATE KEY" + "-----",
+    // Generic credential assignments, assembled at runtime so no complete `password: …` line is committed (R-TST-9).
+    A("pass", "word: ") + "hunter2" + "hunter2",
+    A("api_", "key = ") + "9f8e7d" + "6c5b4a",
+    A("pass", "word: ") + "Summer" + "2026" + ".Admin",
+    A("to", "ken: ") + "QUJD1".repeat(3) + "." + "REVG2".repeat(3) + "." + "R0hJ3".repeat(3),
+  ];
+  for (const t of positives) assert.equal(hits(t, "secret").length, 1, t.slice(0, 12));
+});
+test("secret negatives", () => {
+  for (const t of ["password: <your-password>", "token: the-api-token", "api_key: YOUR_API_KEY", "password = REPLACE_ME", "secret: Optional<String>", "Secret: Keychain",
+    "const token = line.slice(start);", "let secret = /-----BEGIN/", "password: ********", "token = $TOKEN_FROM_ENV", "AKIA short", "sk-short", "secret: 1234567"]) {
+    assert.equal(hits(t, "secret").length, 0, t);
+  }
+});
