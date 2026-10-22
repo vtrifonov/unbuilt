@@ -47,3 +47,18 @@ test("marketplace.json manifest (R-PKG-2)", () => {
   assert.ok(m.plugins[0].source === "." || m.plugins[0].source === "./");
   assert.equal(typeof m.plugins[0].description, "string");
 });
+
+test("ci.yml shape (R-CI-1..6)", () => {
+  const y = fs.readFileSync(path.join(ROOT, ".github/workflows/ci.yml"), "utf8");
+  assert.match(y, /runs-on: ubuntu-latest/);
+  assert.match(y, /node-version: 22\b/);
+  assert.match(y, /actions\/checkout@v4/);
+  assert.match(y, /actions\/setup-node@v4/);
+  assert.match(y, /permissions:\s*\n\s+contents: read/);
+  assert.doesNotMatch(y, /npm (ci|install)/);
+  assert.doesNotMatch(y, /cache/);
+  assert.doesNotMatch(y, /claude plugin validate/);
+  const order = ["npm test", "node scripts/validate.mjs template", "node scripts/validate.mjs examples/clipjar"]
+    .map((s) => y.indexOf(s));
+  assert.ok(order[0] > 0 && order[0] < order[1] && order[1] < order[2]);
+});
