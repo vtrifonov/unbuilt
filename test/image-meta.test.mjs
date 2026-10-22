@@ -111,6 +111,25 @@ test("20 bomb PNGs and 20 bomb embeds trip the run inflate budget with file-type
   assert.equal(result.errors.length, over.length);
 });
 
+test("metadata dense with leak shapes keeps 100 hits per pattern per image plus one summary finding (security recheck 15)", (t) => {
+  const names = Array.from({ length: 8 }, (_, i) => `design/h${String(i).padStart(2, "0")}.png`);
+  const png = makePng({ ztxt: [{ keyword: "Comment", text: "~ab/ ".repeat(208000) }] });
+  const files = Object.fromEntries(names.map((n) => [n, png]));
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  for (const [rel, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, rel), body);
+  const ctx = buildContext(dir, "2026-10-22");
+  assert.equal(ctx.leakHits.length, 8 * 101);
+  const { code, result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(code, 1);
+  assert.equal(result.errors.length, 8 * 101);
+  for (const file of names) {
+    const mine = result.errors.filter((f) => f.file === file);
+    assert.equal(mine.length, 101, file);
+    assert.ok(mine.every((f) => f.rule === "leak-home-path"), file);
+    assert.deepEqual(mine.filter((f) => f.message.includes("not listed")).map((f) => f.message), ["207900 more matches not listed (FORMAT.md §7)"], file);
+  }
+});
+
 test("an SVG over the image budget is reported by budget-image and its embeds are not parsed (security recheck 11)", (t) => {
   const svg = svgWith("data:image/png;base64," + xmpPng().toString("base64")).replace("</svg>", `<!-- ${"p".repeat(2097152)} -->\n</svg>`);
   const dir = makeTempDir(t); copyMinimalValid(dir);

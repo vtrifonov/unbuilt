@@ -876,3 +876,28 @@ test("a single 1 MiB line of email addresses exits 1 with findings, not 2 with a
   assert.equal(r.stderr, "");
   assert.ok(r.stdout.includes("\nerror    leak-email         notes.md:3  email address a@… found"), r.stdout.slice(0, 300));
 });
+test("leak hits are capped at 100 per pattern per file; the rest are counted in one summary finding (security recheck 15)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  const unit = "a@b.io ";
+  const count = Math.ceil(1048576 / unit.length);
+  writeIn(dir, "notes.md", "# Notes\n\n" + unit.repeat(count) + "/Users/alice/x\n");
+  const { code, result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(code, 1);
+  const notes = result.errors.filter((f) => f.file === "notes.md");
+  assert.deepEqual(notes.filter((f) => f.rule === "leak-email" && f.line === 3).length, 100);
+  assert.deepEqual(notes.filter((f) => !("line" in f)).map((f) => [f.rule, f.message]), [["leak-email", `${count - 100} more matches not listed (FORMAT.md §7)`]]);
+  assert.deepEqual(notes.filter((f) => f.rule === "leak-home-path").length, 1);
+  assert.equal(notes.length, 102);
+});
+test("leak hits are capped at 10,000 per run; each file past the cap gets one summary finding (security recheck 15)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  const line = Array.from({ length: 100 }, (_, i) => `u${i}@widgets-intranet.com`).join(" ");
+  for (let i = 0; i < 105; i++) writeIn(dir, `notes/n${String(i).padStart(3, "0")}.md`, "# N\n\n" + line + "\n");
+  const { code, result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(code, 1);
+  const leaks = result.errors.filter((f) => f.rule === "leak-email");
+  const summaries = leaks.filter((f) => f.message.includes("not listed"));
+  assert.equal(leaks.length - summaries.length, 10000);
+  assert.equal(summaries.length, 5);
+  assert.ok(summaries.every((f) => f.message === "100 more matches not listed (FORMAT.md §7)" && !("line" in f)), JSON.stringify(summaries));
+});

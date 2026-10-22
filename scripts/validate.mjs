@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MAX_IMAGE_BYTES, RULES, SUPPORTED_FORMAT_VERSION, finding, isCalendarDate } from "./lib/rules.mjs";
-import { DEFAULT_ALLOW_HOSTS, maskMatch, maskText, scanText } from "./lib/redaction.mjs";
+import { DEFAULT_ALLOW_HOSTS, maskMatch, maskText, scanTextCapped } from "./lib/redaction.mjs";
 import { walkInstance, readText } from "./lib/walk.mjs";
 import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
 import { createInflateBudget, extractImageText } from "./lib/image-meta.mjs";
@@ -98,29 +98,63 @@ const EMBED_RE = /data:image\/([A-Za-z0-9.+-]+)((?:;[A-Za-z0-9=.+-]*)*),((?:\s|&
 const EMBED_BREAKS_RE = /\s|&#(?:10|13|x0?[aAdD]);/g;
 const EMBED_FORMATS = { png: "png", jpeg: "jpeg", jpg: "jpeg", webp: "webp" };
 
-// A raster's metadata segments are leak-scanned as they are produced and only the hits are kept, so memory is
-// bounded by the hits, not by the inflated text; `run` is the run-wide inflate budget (amendment 7d revised).
-function scanImage(buf, run, opts) {
+// Leak hits are capped at 100 per pattern per file and 10,000 per run. Past a cap a hit is only counted, and each
+// capped file gets one summary hit per pattern (`more`), so memory is bounded by the caps and the verdict is
+// unchanged (amendment 7e).
+const HITS_PER_PATTERN_PER_FILE = 100;
+const HITS_PER_RUN = 10000;
+function createLeakSink() {
   const hits = [];
-  const onSegment = (seg) => { for (const h of scanText(seg, opts)) hits.push(h); };
-  const img = extractImageText(buf, { run, onSegment });
-  return { format: img.format, error: img.error, hits };
+  const kept = new Map();
+  const overflow = new Map();
+  const add = (file, line, h) => {
+    const key = `${file}\0${h.pattern}`;
+    const n = kept.get(key) ?? 0;
+    if (n < HITS_PER_PATTERN_PER_FILE && hits.length < HITS_PER_RUN) {
+      kept.set(key, n + 1);
+      hits.push({ file, line, match: h.match, pattern: h.pattern, kind: h.kind });
+      return;
+    }
+    drop(file, h.pattern, 1);
+  };
+  const drop = (file, pattern, n) => {
+    const key = `${file}\0${pattern}`;
+    const o = overflow.get(key);
+    if (o) o.more += n;
+    else overflow.set(key, { file, line: null, pattern, more: n });
+  };
+  // Each scan keeps at most the per-file cap per pattern, so even one dense segment never holds more hits than that.
+  const scan = (file, line, text, opts) => {
+    const r = scanTextCapped(text, opts, HITS_PER_PATTERN_PER_FILE);
+    for (const h of r.hits) add(file, line === undefined ? h.line : line, h);
+    for (const [pattern, n] of Object.entries(r.dropped)) drop(file, pattern, n);
+  };
+  return { add, scan, hits: () => [...hits, ...overflow.values()] };
 }
 
-function scanEmbed(type, params, payload, run, opts) {
+// A raster's metadata segments are leak-scanned as they are produced and the hits go straight to the capped sink,
+// so memory is bounded by the caps, not by the inflated text; `run` is the run-wide inflate budget (amendment 7d
+// revised, 7e). Hits are reported at `file` and `line` (null for an image file).
+function scanImage(buf, run, opts, sink, file, line) {
+  const onSegment = (seg) => sink.scan(file, line, seg, opts);
+  const img = extractImageText(buf, { run, onSegment });
+  return { format: img.format, error: img.error };
+}
+
+function scanEmbed(type, params, payload, run, opts, sink, file, line) {
   const format = EMBED_FORMATS[type];
-  if (format === undefined) return { error: `data:image/${type} is not png, jpeg or webp`, hits: [] };
-  if (!params.split(";").includes("base64")) return { error: `data:image/${type} is not base64-encoded`, hits: [] };
+  if (format === undefined) return { error: `data:image/${type} is not png, jpeg or webp` };
+  if (!params.split(";").includes("base64")) return { error: `data:image/${type} is not base64-encoded` };
   const buf = Buffer.from(payload.replace(EMBED_BREAKS_RE, ""), "base64");
-  if (buf.length > MAX_IMAGE_BYTES) return { error: `decodes to ${buf.length} bytes; the limit is ${MAX_IMAGE_BYTES}`, hits: [] };
-  const img = scanImage(buf, run, opts);
+  if (buf.length > MAX_IMAGE_BYTES) return { error: `decodes to ${buf.length} bytes; the limit is ${MAX_IMAGE_BYTES}` };
+  const img = scanImage(buf, run, opts, sink, file, line);
   let error = img.error;
   if (error === null && img.format !== format) error = `${img.format} content in a data:image/${type} URI`;
-  return { error, hits: img.hits };
+  return { error };
 }
 
 // An .svg over the image size budget is reported by budget-image, so its embeds are not parsed.
-function findEmbeds(texts, files, run, opts) {
+function findEmbeds(texts, files, run, opts, sink) {
   const embeds = [];
   for (const [file, text] of texts) {
     const entry = files.get(file);
@@ -130,7 +164,7 @@ function findEmbeds(texts, files, run, opts) {
     for (const m of text.matchAll(EMBED_RE)) {
       for (let i = text.indexOf("\n", from); i !== -1 && i < m.index; i = text.indexOf("\n", i + 1)) line++;
       from = m.index;
-      embeds.push({ file, line, ...scanEmbed(m[1].toLowerCase(), m[2].toLowerCase(), m[3], run, opts) });
+      embeds.push({ file, line, ...scanEmbed(m[1].toLowerCase(), m[2].toLowerCase(), m[3], run, opts, sink, file, line) });
     }
   }
   return embeds;
@@ -159,22 +193,16 @@ function maskPath(p, isDir, opts) {
 
 // Leak scanning happens once per text, image segment and path; the five leak-* rules filter these hits by pattern.
 // Each file and directory is scanned by its own name (the last path segment), so a leak in a directory name is
-// reported once, at the directory, with no line (spec amendment 8a).
-function collectLeakHits(texts, images, embeds, paths, dirs, opts) {
-  const hits = [];
-  const keep = (file, found, line) => {
-    for (const h of found) hits.push({ file, line: line === undefined ? h.line : line, match: h.match, pattern: h.pattern, kind: h.kind });
-  };
-  for (const p of paths) if (p !== "") keep(p, scanText(p.slice(p.lastIndexOf("/") + 1), opts), null);
+// reported once, at the directory, with no line (spec amendment 8a). Image and embed hits reach the sink as the
+// images are scanned, after these.
+function collectTextLeakHits(sink, texts, paths, dirs, opts) {
+  for (const p of paths) if (p !== "") sink.scan(p, null, p.slice(p.lastIndexOf("/") + 1), opts);
   for (const d of dirs) {
     const segs = d.split("/");
     const name = segs.length > 1 ? homeChainName(segs[segs.length - 2], segs[segs.length - 1]) : null;
-    if (name !== null) hits.push({ file: d, line: null, match: `/${segs[segs.length - 2]}/${name}`, pattern: "home-path" });
+    if (name !== null) sink.add(d, null, { match: `/${segs[segs.length - 2]}/${name}`, pattern: "home-path" });
   }
-  for (const [file, text] of texts) keep(file, scanText(text, opts));
-  for (const [file, img] of images) keep(file, img.hits, null);
-  for (const e of embeds) keep(e.file, e.hits, e.line);
-  return hits;
+  for (const [file, text] of texts) sink.scan(file, undefined, text, opts);
 }
 
 // `lines` is the scenarios file split once; each section scans only its own slice.
@@ -222,16 +250,18 @@ export function buildContext(root, today) {
   const allowHosts = DEFAULT_ALLOW_HOSTS;
   const exactHosts = metaUsable ? exactHostsOf(meta) : [];
   const leakOpts = { allowHosts, exactHosts };
+  const sink = createLeakSink();
+  collectTextLeakHits(sink, texts, [...entries.map((e) => e.path), ...dirs], dirs, leakOpts);
   // Rasters are read after unbuilt.yaml so their metadata can be scanned with the instance's public hosts.
   const run = createInflateBudget();
   const images = new Map();
   for (const e of rasters) {
     let buf = null;
     try { buf = fs.readFileSync(path.join(root, e.path)); } catch { /* unreadable */ }
-    if (buf) images.set(e.path, scanImage(buf, run, leakOpts));
+    if (buf) images.set(e.path, scanImage(buf, run, leakOpts, sink, e.path, null));
   }
-  const embeds = findEmbeds(texts, files, run, leakOpts);
-  const leakHits = collectLeakHits(texts, images, embeds, [...entries.map((e) => e.path), ...dirs], dirs, leakOpts);
+  const embeds = findEmbeds(texts, files, run, leakOpts, sink);
+  const leakHits = sink.hits();
   return {
     root, today, entries, dirs: new Set(dirs), files, texts, images, embeds, nodeModulesDirs, yaml, meta, versionError, metaUsable,
     modules, moduleIds, prose, declFiles, attempts, declarations, scenarioFiles, scenarios, citations,

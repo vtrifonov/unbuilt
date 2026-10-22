@@ -133,7 +133,7 @@ Leak rules scan each text file, each file and directory path, and each image's m
 
 - `public_hosts` entries match exactly, never as a parent of subdomains. A URL host is compared after stripping trailing `.,;:!?*_~`, in raw and punycode form.
 - A dotted quad preceded by `v`, by `version` with an optional quote, `:` or `=`, by `section ` or by `§` is a version or section number, not an address.
-- A URL's host is checked whatever its TLD, so a URL naming a bare internal host and a port is a finding.
+- A URL's host is checked whatever its TLD, even a bare internal name.
 - A web route whose path starts with a `home` segment followed by a page name is a true positive for `leak-home-path`; reword it.
 
 **File types.** Every file is a regular file, either text or an image of an allowed type (section 8); an `.svg` must be a text file. Symbolic links, other binaries, unreadable files and `node_modules/` are not allowed, because the validator cannot scan them (`file-types`). The walk skips any entry named `.git`. An unreadable or unsearchable instance directory exits 2.
@@ -151,7 +151,7 @@ All budgets are errors:
 
 Line count is the number of `\n` characters, plus one if the file is non-empty and lacks a final `\n`. Word count is the number of non-empty tokens after splitting each `.md` file's full text, comments and fences included, on whitespace.
 
-Image metadata inflation is capped at 1 MiB per image or embed and 8 MiB per run (`file-types`). Images over budget, and embeds in such an `.svg`, are not parsed.
+Image metadata inflation is capped at 1 MiB per image or embed and 8 MiB per run (`file-types`). Over-budget images and their embeds are not parsed. Leak hits past 100 per pattern per file or 10,000 per run are only counted.
 
 ## 9. What builders are promised
 

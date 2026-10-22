@@ -394,8 +394,18 @@ function scanInstance(ctx, patterns) {
   return ctx.leakHits.filter((h) => patterns.includes(h.pattern));
 }
 
-const leakRule = (rule, patterns, describe) => (ctx) =>
-  scanInstance(ctx, patterns).map((h) => finding("error", rule, h.file, h.line, describe(maskMatch(h.match), h)));
+// A summary hit (`more`) stands for the hits past the caps; a rule sums its patterns' summaries into one finding per
+// file (amendment 7e).
+const leakRule = (rule, patterns, describe) => (ctx) => {
+  const out = [];
+  const more = new Map();
+  for (const h of scanInstance(ctx, patterns)) {
+    if (h.more === undefined) out.push(finding("error", rule, h.file, h.line, describe(maskMatch(h.match), h)));
+    else more.set(h.file, (more.get(h.file) ?? 0) + h.more);
+  }
+  for (const [file, n] of more) out.push(finding("error", rule, file, null, `${n} more matches not listed (FORMAT.md §7)`));
+  return out;
+};
 
 const IP_TAIL = "replace it with a role word or, if public, add it to public_hosts (FORMAT.md §7)";
 export const leakEmail = leakRule("leak-email", ["email"], (m) => `email address ${m} found; replace it with a role word (FORMAT.md §7)`);

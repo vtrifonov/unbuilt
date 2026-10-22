@@ -33,13 +33,9 @@ function hostAllowedNormalized(host, o) {
   return puny !== h && puny.split(".").length === h.split(".").length && hostListed(puny, o);
 }
 
-// Overlap tests against a set of spans go through an offset mask, so each test costs the length of the tested
-// span rather than the number of spans; with disjoint tested spans a whole pass stays linear in the text.
-function spanMask(length, spans) {
-  const mask = new Uint8Array(length);
-  for (const s of spans) mask.fill(1, s.start, s.end);
-  return mask;
-}
+// Overlap tests against a set of spans go through an offset mask (a Uint8Array as long as the text, filled as the
+// spans are found), so each test costs the length of the tested span rather than the number of spans; with
+// disjoint tested spans a whole pass stays linear in the text.
 function masked(mask, span) {
   for (let i = span.start; i < span.end; i++) if (mask[i] === 1) return true;
   return false;
@@ -57,38 +53,41 @@ function isEmailDomainAllowed(domain) {
   return EMAIL_ALLOWED_SUFFIX.some((s) => d.endsWith(s));
 }
 
-function scanEmail(text, opts) {
-  const out = [];
+// A URL authority masks any email inside it (the userinfo@host is reported once, as the hostname); each reported
+// email is then added to the same mask, which the bare-host scan reads. Matches of one regex never overlap, so an
+// email never meets its own pattern in the mask.
+function scanEmail(text, opts, taken, out) {
   for (const m of text.matchAll(EMAIL_RE)) {
+    const span = { start: m.index, end: m.index + m[0].length };
     const at = m[0].indexOf("@");
     const local = m[0].slice(0, at);
     const domain = m[0].slice(at + 1);
     if (isEmailDomainAllowed(domain)) continue;
     if (local === "git" && hostAllowedNormalized(domain, opts)) continue;
-    out.push({ pattern: "email", start: m.index, end: m.index + m[0].length, match: m[0] });
+    if (masked(taken, span)) continue;
+    taken.fill(1, span.start, span.end);
+    out.add({ pattern: "email", ...span, match: m[0] });
   }
-  return out;
 }
 
 const HOME_POSIX_RE = /\/(?:Users|home)\/([A-Za-z0-9._-]+)/g;
 const HOME_DRIVE_RE = /[A-Za-z]:(?:\\\\|\\|\/)Users(?:\\\\|\\|\/)([A-Za-z0-9._-]+)/g;
 const HOME_TILDE_RE = /~[a-z][a-z0-9._-]*\//gi;
 
-function scanHomePath(text) {
-  const out = [];
-  const add = (m) => out.push({ pattern: "home-path", start: m.index, end: m.index + m[0].length, match: m[0] });
+function scanHomePath(text, out) {
+  const add = (m) => out.add({ pattern: "home-path", start: m.index, end: m.index + m[0].length, match: m[0] });
+  const drive = new Uint8Array(text.length);
   for (const m of text.matchAll(HOME_DRIVE_RE)) {
     if (m[1] === "Public" || m[1] === "Default") continue;
+    drive.fill(1, m.index, m.index + m[0].length);
     add(m);
   }
-  const drive = spanMask(text.length, out);
   for (const m of text.matchAll(HOME_POSIX_RE)) {
     if (m[1] === "Shared") continue;
     if (masked(drive, { start: m.index, end: m.index + m[0].length })) continue;
     add(m);
   }
   for (const m of text.matchAll(HOME_TILDE_RE)) add(m);
-  return out;
 }
 
 export const IPV4_RE = /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?!\.?\d)/g;
@@ -101,15 +100,13 @@ function isIpv4Allowed(addr, opts) {
   return opts.exactHosts.includes(addr);
 }
 
-function scanIpv4(text, opts) {
-  const out = [];
+function scanIpv4(text, opts, out) {
   for (const m of text.matchAll(IPV4_RE)) {
     const before = text.slice(Math.max(0, m.index - 24), m.index);
     if (IPV4_VERSION_PREFIX_RE.test(before)) continue;
     if (isIpv4Allowed(m[0], opts)) continue;
-    out.push({ pattern: "ipv4", start: m.index, end: m.index + m[0].length, match: m[0] });
+    out.add({ pattern: "ipv4", start: m.index, end: m.index + m[0].length, match: m[0] });
   }
-  return out;
 }
 
 // Unambiguous form of "hex and colons with at least one colon"; an address with a zone index is under 64 characters.
@@ -131,8 +128,7 @@ function classifyIpv6(candidate) {
   return null;
 }
 
-function scanIpv6(text, opts) {
-  const out = [];
+function scanIpv6(text, opts, out) {
   for (const m of text.matchAll(IPV6_CANDIDATE_RE)) {
     if (m[0].length > IPV6_MAX_CANDIDATE) continue;
     const c = classifyIpv6(m[0]);
@@ -143,9 +139,8 @@ function scanIpv6(text, opts) {
     if (opts.exactHosts.includes(addr) || opts.exactHosts.includes(m[0].toLowerCase())) continue;
     const f = { pattern: "ipv6", start: m.index, end: m.index + m[0].length, match: m[0] };
     if (c.kind) f.kind = c.kind;
-    out.push(f);
+    out.add(f);
   }
-  return out;
 }
 
 export const TLDS = [
@@ -170,9 +165,9 @@ function stripTrailers(s) {
 }
 
 // URL authorities (userinfo@host:port): the host is the part after the last "@" with any ":port" stripped.
-// A userinfo carrying a non-placeholder password ("user:password") is kept so it can be reported as a secret.
-function urlAuthorities(text) {
-  const out = [];
+// Each authority is added to the `taken` mask as it is found. Its host goes to the hostname list, and a userinfo
+// carrying a non-placeholder password ("user:password") goes to `passwords` so it can be reported as a secret.
+function scanAuthorities(text, opts, taken, hosts, passwords) {
   for (const m of text.matchAll(URL_HOST_RE)) {
     const start = m.index + m[0].length - m[1].length;
     const authority = stripTrailers(m[1]);
@@ -183,33 +178,24 @@ function urlAuthorities(text) {
     const hostStart = start + at + 1;
     const userinfo = at < 0 ? "" : authority.slice(0, at);
     const sep = userinfo.indexOf(":");
-    const hasPassword = sep >= 0 && sep < userinfo.length - 1 && !isPlaceholderValue(userinfo.slice(sep + 1));
-    const password = hasPassword ? { start, end: start + at, match: userinfo } : null;
-    out.push({ start, end: start + authority.length, host, hostStart, password });
-  }
-  return out;
-}
-
-function scanUserinfoSecret(authorities) {
-  return authorities.filter((a) => a.password).map((a) => ({ pattern: "secret", ...a.password }));
-}
-
-function scanHostname(text, opts, emailSpans, authorities) {
-  const out = [];
-  for (const a of authorities) {
-    const { host } = a;
+    if (sep >= 0 && sep < userinfo.length - 1 && !isPlaceholderValue(userinfo.slice(sep + 1))) {
+      passwords.push({ pattern: "secret", start, end: start + at, match: userinfo });
+    }
+    taken.fill(1, start, start + authority.length);
     if (!host || IPV4_FULL_RE.test(host) || host.startsWith("[")) continue;
     if (hostAllowedNormalized(host, opts)) continue;
-    out.push({ pattern: "hostname", start: a.hostStart, end: a.hostStart + host.length, match: host });
+    hosts.add({ pattern: "hostname", start: hostStart, end: hostStart + host.length, match: host });
   }
-  const taken = spanMask(text.length, [...authorities, ...emailSpans]);
+}
+
+// `taken` holds every URL authority and reported email, so a bare host inside one is not reported again.
+function scanBareHosts(text, opts, taken, hosts) {
   for (const m of text.matchAll(BARE_HOST_RE)) {
     const span = { start: m.index, end: m.index + m[0].length };
     if (masked(taken, span)) continue;
     if (hostAllowedNormalized(m[1], opts)) continue;
-    out.push({ pattern: "hostname", ...span, match: m[1] });
+    hosts.add({ pattern: "hostname", ...span, match: m[1] });
   }
-  return out;
 }
 
 export const SECRET_SHAPES = [
@@ -287,19 +273,44 @@ function position(starts, offset) {
   return { line: lo + 1, column: offset - starts[lo] + 1 };
 }
 
-function scanSpans(text, opts) {
+// Each pattern's spans go to a capped list: past `limit` a span is only counted, so a text dense with leak shapes
+// costs memory bounded by the cap, not by its hits (amendment 7e). Masks that one scanner reads from another are
+// filled as spans are found, so what is reported never depends on the cap.
+const PATTERNS = ["email", "home-path", "ipv4", "ipv6", "hostname", "secret"];
+function cappedList(limit) {
+  const list = { spans: [], dropped: 0, add: (s) => { if (list.spans.length < limit) list.spans.push(s); else list.dropped++; } };
+  return list;
+}
+
+function scanSpans(text, opts, limit = Infinity) {
   const o = normalizeOpts(opts);
-  const authorities = urlAuthorities(text);
-  // A userinfo@host inside a URL authority is reported once, as the hostname.
-  const inAuthority = spanMask(text.length, authorities);
-  const emails = scanEmail(text, o).filter((e) => !masked(inAuthority, e));
-  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails, authorities), ...scanSecret(text, scanUserinfoSecret(authorities))];
-  return all.sort((a, b) => a.start - b.start || a.end - b.end);
+  const lists = Object.fromEntries(PATTERNS.map((p) => [p, cappedList(limit)]));
+  const taken = new Uint8Array(text.length);
+  const passwords = [];
+  scanAuthorities(text, o, taken, lists.hostname, passwords);
+  scanEmail(text, o, taken, lists.email);
+  scanHomePath(text, lists["home-path"]);
+  scanIpv4(text, o, lists.ipv4);
+  scanIpv6(text, o, lists.ipv6);
+  scanBareHosts(text, o, taken, lists.hostname);
+  for (const s of scanSecret(text, passwords)) lists.secret.add(s);
+  const spans = [];
+  for (const p of PATTERNS) for (const s of lists[p].spans) spans.push(s);
+  spans.sort((a, b) => a.start - b.start || a.end - b.end);
+  const dropped = {};
+  for (const p of PATTERNS) if (lists[p].dropped > 0) dropped[p] = lists[p].dropped;
+  return { spans, dropped };
 }
 
 export function scanText(text, opts = {}) {
+  return scanTextCapped(text, opts, Infinity).hits;
+}
+
+// At most `limit` hits per pattern; `dropped` counts the rest by pattern (amendment 7e).
+export function scanTextCapped(text, opts = {}, limit = Infinity) {
+  const { spans, dropped } = scanSpans(text, opts, limit);
   const starts = lineStarts(text);
-  return scanSpans(text, opts).map(({ start, end, ...f }) => ({ ...f, ...position(starts, start) }));
+  return { hits: spans.map(({ start, end, ...f }) => ({ ...f, ...position(starts, start) })), dropped };
 }
 
 export function maskMatch(m) {
@@ -309,7 +320,7 @@ export function maskMatch(m) {
 export function maskText(text, opts = {}) {
   // Merge overlapping findings into their union so no part of an outer span survives a nested one.
   const merged = [];
-  for (const s of scanSpans(text, opts)) {
+  for (const s of scanSpans(text, opts).spans) {
     const last = merged[merged.length - 1];
     if (last && s.start < last.end) last.end = Math.max(last.end, s.end);
     else merged.push({ start: s.start, end: s.end });
