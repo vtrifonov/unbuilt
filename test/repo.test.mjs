@@ -75,3 +75,40 @@ test("FORMAT.md names every rule, has the ten sections in order and the version 
   assert.ok(FORMAT.indexOf("Version: ") < FORMAT.indexOf("\n## 1. "));
   assert.ok(countWords(FORMAT) <= 2500, "FORMAT.md over 2,500 words");
 });
+
+import { runCli, runJson } from "./helpers.mjs";
+import { blankCommentsAndFences } from "../scripts/lib/markdown.mjs";
+const TEMPLATE = path.join(ROOT, "template");
+const mdFiles = (dir) => fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith(".md")).map((d) => path.join(d.parentPath ?? d.path, d.name));
+test("template passes clean with zero warnings (R-TPL-6)", () => {
+  const r = runJson([TEMPLATE, "--json"]);
+  assert.equal(r.code, 0); assert.deepEqual(r.result, { errors: [], warnings: [] });
+});
+test("template has no placeholders outside comments and stays under 1,200 words (R-TPL-5, R-TPL-7)", () => {
+  let words = 0;
+  for (const f of mdFiles(TEMPLATE)) {
+    const text = fs.readFileSync(f, "utf8"); words += countWords(text);
+    assert.doesNotMatch(blankCommentsAndFences(text), /<[a-z][a-z0-9-]*>/, f);
+  }
+  words += countWords(fs.readFileSync(path.join(TEMPLATE, "unbuilt.yaml"), "utf8"));
+  assert.ok(words < 1200, `template has ${words} words`);
+});
+test("template version equals FORMAT.md version (R-FMT-2)", () => {
+  const y = fs.readFileSync(path.join(TEMPLATE, "unbuilt.yaml"), "utf8");
+  assert.equal(Number(y.match(/^unbuilt: (\d+)/m)[1]), SUPPORTED_FORMAT_VERSION);
+});
+test("template files and comments (R-TPL-2, R-TPL-3, R-TPL-4)", () => {
+  const expected = ["BUILD.md", "README.md", "SPEC.md", "constraints.md", "design/README.md", "modules/core/SPEC.md", "modules/core/problem.md", "modules/core/scenarios.md", "redaction.md", "unbuilt.yaml"];
+  const actual = fs.readdirSync(TEMPLATE, { recursive: true, withFileTypes: true }).filter((d) => d.isFile()).map((d) => path.relative(TEMPLATE, path.join(d.parentPath ?? d.path, d.name)).split(path.sep).join("/")).sort();
+  assert.deepEqual(actual, expected);
+  // R-TPL-4: one FORMAT.md §n comment per section (a heading line and everything up to the next heading), not one per file.
+  for (const f of mdFiles(TEMPLATE)) {
+    const lines = fs.readFileSync(f, "utf8").split("\n");
+    const starts = lines.map((l, i) => (/^#{1,6} /.test(l) ? i : -1)).filter((i) => i >= 0);
+    assert.ok(starts.length > 0, `${f} has no heading`);
+    starts.forEach((start, k) => {
+      const section = lines.slice(start, starts[k + 1] ?? lines.length).join("\n");
+      assert.match(section, /<!--[\s\S]*?FORMAT\.md §\d+[\s\S]*?-->/, `${f}: section "${lines[start]}" has no FORMAT.md comment`);
+    });
+  }
+});

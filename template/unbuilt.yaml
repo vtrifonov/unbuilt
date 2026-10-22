@@ -1,0 +1,20 @@
+unbuilt: 1 # format version; the validator supports 1
+name: my-idea # kebab-case, same as the repo name without the -unbuilt suffix
+summary: Captures a short note with one keystroke and lists past notes. # one sentence, 1 to 200 characters
+origin: extracted-from-private-implementation # extracted-from-public-implementation | extracted-from-private-implementation | designed-not-built
+reference_impl: private # an https URL for public origin, private for private origin, none for designed-not-built
+license: MIT # SPDX identifier of this instance repo
+has_ui: true # true requires design/README.md
+platforms: # lowercase tokens; a declined platform name becomes desktop, server or mobile
+  - desktop
+interview: author # author | partial | none
+modules: # one entry per user-facing capability, at most 12
+  - id: CORE # two to eight capital letters, unique, not INV
+    path: modules/core # directory under modules/
+    maturity: shipped # shipped | partial | sketched | abandoned
+# Optional fields, not set here (see FORMAT.md section 3):
+# original_stack: list of the original technologies, an effort signal only
+# original_effort: S | M | L | XL, how long the author's build took
+# implementation_terms: the author's terms for builders, one or two sentences
+# substitutions: list of kebab-case names, each needs substitutions/<name>.md
+# public_hosts: public hostnames or IP literals the author confirmed
