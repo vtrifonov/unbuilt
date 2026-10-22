@@ -107,6 +107,28 @@ test("blankCommentsAndFences follows CommonMark on fence info strings, closing f
   assert.equal(blankCommentsAndFences("c <!-- d --> e\n"), "c  e\n");
   assert.equal(blankCommentsAndFences("x <!-- never closed\ny\n"), "x <!-- never closed\ny\n");
 });
+test("blankCommentsAndFences scopes a mid-line <!-- to its paragraph (amendment 8f revision)", () => {
+  const decl = "- **CORE-3** (MUST) A note longer than the screen scrolls.";
+  const later = "\n\n<!-- Open question: should drafts sync? -->\n";
+  const ids = (src) => findAttempts(blankCommentsAndFences(src), ["CORE"]).map((a) => [a.exact?.id, a.line]);
+  // p9b: a `<!--` in a code span stays literal even when a real comment follows later in the file.
+  assert.deepEqual(ids("# Core\n\nA note that starts with `<!--` is kept verbatim.\n\n" + decl + later), [["CORE-3", 5]]);
+  // p9c: a mid-line `<!--` whose paragraph has no `-->` is literal; a `-->` in a later paragraph does not close it.
+  assert.deepEqual(ids("# Core\n\nA note that starts with <!-- is kept verbatim.\n\n" + decl + later), [["CORE-3", 5]]);
+  assert.equal(blankCommentsAndFences("a <!-- b\n\nc --> d\n"), "a <!-- b\n\nc --> d\n");
+  // A line-start `<!--` (up to three spaces) is an HTML block and runs across blank lines to the next line holding `-->`.
+  assert.deepEqual(ids("<!-- one\n\n- **CORE-4** (MUST) hidden.\n-->\n" + decl + "\n"), [["CORE-3", 5]]);
+  assert.deepEqual(ids("   <!-- one\n\n- **CORE-4** (MUST) hidden.\n--> tail\n" + decl + "\n"), [["CORE-3", 5]]);
+  assert.equal(blankCommentsAndFences("<!-- a\n\nb --> c\n"), "\n\n c\n");
+  // An inline comment closed within its own paragraph blanks, across lines too.
+  assert.deepEqual(ids("Intro <!-- hide\n- **CORE-4** (MUST) hidden.\nend --> tail\n\n" + decl + "\n"), [["CORE-3", 5]]);
+  assert.equal(blankCommentsAndFences("a <!-- b\nc --> d\n"), "a \n d\n");
+  // A `<!--` inside a backtick code span on its line is literal, even with a `-->` later in the paragraph.
+  assert.equal(blankCommentsAndFences("Type `<!--` to start. Close with --> later.\n"), "Type `<!--` to start. Close with --> later.\n");
+  assert.equal(blankCommentsAndFences("``a `<!--` b`` <!-- c --> d\n"), "``a `<!--` b``  d\n");
+  // An unmatched backtick run opens no code span, so the comment after it still blanks.
+  assert.equal(blankCommentsAndFences("a ` <!-- b --> c\n"), "a `  c\n");
+});
 test("countLines and countWords (R-FMT-38)", () => {
   assert.equal(countLines(""), 0); assert.equal(countLines("a\nb\n"), 2); assert.equal(countLines("a\nb"), 2);
   assert.equal(countWords("a b\n\n c\n"), 3);
@@ -475,6 +497,16 @@ test("an unterminated <!-- or a one-line ```code``` span does not hide a later u
   for (const marker of ["A note that starts with `<!--` is kept verbatim.", "```code``` spans are shown in a monospace font."]) {
     const dir = makeTempDir(t); copyMinimalValid(dir);
     writeIn(dir, "modules/core/SPEC.md", `# Core\n\n- **CORE-1** (MUST) A note is saved when the user presses the save key.\n- **CORE-2** (SHOULD) Saved notes are listed newest first.\n\n${marker}\n\n- **CORE-3** (MUST) A note longer than the screen scrolls.\n`);
+    const j = runJson([dir, "--json", "--today", "2026-10-22"]);
+    assert.equal(j.code, 1, marker);
+    assert.deepEqual(j.result.errors.map((f) => [f.rule, f.file, f.line]), [["must-has-scenario", "modules/core/SPEC.md", 8]], marker);
+    assert.match(j.result.errors[0].message, /^CORE-3 is a MUST/);
+  }
+});
+test("a later real comment does not close a mid-paragraph <!-- and hide an uncovered MUST (probes p9b, p9c)", (t) => {
+  for (const marker of ["A note that starts with `<!--` is kept verbatim.", "A note that starts with <!-- is kept verbatim."]) {
+    const dir = makeTempDir(t); copyMinimalValid(dir);
+    writeIn(dir, "modules/core/SPEC.md", `# Core\n\n- **CORE-1** (MUST) A note is saved when the user presses the save key.\n- **CORE-2** (SHOULD) Saved notes are listed newest first.\n\n${marker}\n\n- **CORE-3** (MUST) A note longer than the screen scrolls.\n\n<!-- Open question: should drafts sync? -->\n`);
     const j = runJson([dir, "--json", "--today", "2026-10-22"]);
     assert.equal(j.code, 1, marker);
     assert.deepEqual(j.result.errors.map((f) => [f.rule, f.file, f.line]), [["must-has-scenario", "modules/core/SPEC.md", 8]], marker);

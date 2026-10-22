@@ -19,17 +19,40 @@ function closesFence(line, fence) {
   return m !== null && m[1][0] === fence.ch && m[1].length >= fence.len;
 }
 
+// Backtick code spans on one line: a run of n backticks closed by the next run of exactly n.
+function codeSpans(line) {
+  const runs = [...line.matchAll(/`+/g)].map((m) => [m.index, m[0].length]);
+  const spans = [];
+  for (let a = 0; a < runs.length; a++) {
+    const b = runs.findIndex((r, k) => k > a && r[1] === runs[a][1]);
+    if (b < 0) continue;
+    spans.push([runs[a][0], runs[b][0] + runs[b][1]]);
+    a = b;
+  }
+  return spans;
+}
+
+const isBlank = (line) => /^[ \t]*$/.test(line);
+
+// Spec amendment 8f (recheck 2): a `<!--` at line start (up to three spaces) is an HTML block that runs to the
+// next line containing `-->`; any other `<!--` opens a comment only if `-->` follows within its paragraph
+// (before the next blank line); a `<!--` inside a code span on its line is literal; unterminated is literal.
+function opensComment(lines, k, j, atLineStart) {
+  if (lines[k].indexOf("-->", j + 4) >= 0) return true;
+  for (let m = k + 1; m < lines.length; m++) {
+    if (!atLineStart && isBlank(lines[m])) return false;
+    if (lines[m].includes("-->")) return true;
+  }
+  return false;
+}
+
 export function blankCommentsAndFences(text) {
-  const lf = toLf(text);
-  // A comment is terminated only when a `-->` follows its `<!--` somewhere later in the file.
-  const lastClose = lf.lastIndexOf("-->");
+  const lines = toLf(text).split("\n");
   const out = [];
   let fence = null;
   let inComment = false;
-  let offset = 0;
-  for (const line of lf.split("\n")) {
-    const lineStart = offset;
-    offset += line.length + 1;
+  for (let k = 0; k < lines.length; k++) {
+    const line = lines[k];
     if (fence) {
       out.push("");
       if (closesFence(line, fence)) fence = null;
@@ -43,6 +66,7 @@ export function blankCommentsAndFences(text) {
         continue;
       }
     }
+    const spans = codeSpans(line);
     let kept = "";
     let i = 0;
     while (i < line.length) {
@@ -51,16 +75,23 @@ export function blankCommentsAndFences(text) {
         if (j < 0) break;
         inComment = false;
         i = j + 3;
-      } else {
-        const j = line.indexOf("<!--", i);
-        if (j < 0 || lastClose < lineStart + j + 4) {
-          kept += line.slice(i);
-          break;
-        }
-        kept += line.slice(i, j);
-        inComment = true;
-        i = j + 4;
+        continue;
       }
+      let j = line.indexOf("<!--", i);
+      while (j >= 0) {
+        const at = j;
+        const span = spans.find(([s, e]) => s < at && at < e);
+        const open = !span && opensComment(lines, k, j, i === 0 && /^ {0,3}$/.test(line.slice(0, j)));
+        if (open) break;
+        j = line.indexOf("<!--", span ? span[1] : j + 1);
+      }
+      if (j < 0) {
+        kept += line.slice(i);
+        break;
+      }
+      kept += line.slice(i, j);
+      inComment = true;
+      i = j + 4;
     }
     out.push(kept);
   }
