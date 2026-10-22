@@ -52,6 +52,8 @@ export function walkInstance(root) {
       return;
     }
     for (const name of names) {
+      // Any entry named .git is skipped, file or directory: a worktree's .git file holds an absolute gitdir path (amendment 8b).
+      if (name === ".git") continue;
       const rel = relDir === "" ? name : `${relDir}/${name}`;
       const abs = path.join(root, rel);
       let stat;
@@ -62,7 +64,6 @@ export function walkInstance(root) {
         continue;
       }
       if (stat.isDirectory()) {
-        if (name === ".git") continue;
         dirs.push(rel);
         if (name === "node_modules") nodeModulesDirs.push(rel);
         else visit(rel);

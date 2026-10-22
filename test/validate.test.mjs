@@ -66,6 +66,17 @@ test("walk: lstat, skips .git, records node_modules and non-regular entries (R-V
   assert.equal(by["Photo.PNG"].ext, "png"); assert.equal(by["Photo.PNG"].isRaster, true); assert.equal(by["Photo.PNG"].isText, false);
   if (linked) assert.equal(by["link.md"].kind, "symlink");
 });
+test("walk skips a .git file as well as a .git directory (amendment 8b)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  const home = ["", "Users", "alice", "projects", "notes", ".git", "worktrees", "notes-unbuilt"].join("/");
+  writeIn(dir, ".git", `gitdir: ${home}\n`);
+  writeIn(dir, "modules/core/.git", `gitdir: ${home}\n`);
+  const { entries } = walkInstance(dir);
+  assert.ok(!entries.some((e) => e.path === ".git" || e.path.endsWith("/.git")), JSON.stringify(entries.map((e) => e.path)));
+  const j = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(j.code, 0);
+  assert.deepEqual(j.result, { errors: [], warnings: [] });
+});
 
 import { blankCommentsAndFences, countLines, countWords, findAttempts, findCitations, findScenarioSections } from "../scripts/lib/markdown.mjs";
 
