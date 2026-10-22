@@ -2,6 +2,13 @@ export const SUPPORTED_FORMAT_VERSION = 1;
 
 export const RULES = [];
 
+export function finding(level, rule, file, line, message) {
+  const f = { level, rule, file };
+  if (line !== null && line !== undefined) f.line = line;
+  f.message = message;
+  return f;
+}
+
 export function isCalendarDate(s) {
   if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
   const y = Number(s.slice(0, 4));

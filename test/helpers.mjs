@@ -25,7 +25,75 @@ export function makeTempDir(t) {
   return dir;
 }
 
-const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+export function writeIn(dir, rel, content) {
+  const abs = path.join(dir, rel);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, content);
+}
+
+export function readIn(dir, rel) {
+  return fs.readFileSync(path.join(dir, rel), "utf8");
+}
+
+export function copyMinimalValid(dir) {
+  fs.cpSync(path.join(FIXTURES, "minimal-valid"), dir, { recursive: true });
+}
+
+export function has(result, rule, level, file) {
+  const list = level === "error" ? result.errors : result.warnings;
+  return list.some((f) => f.rule === rule && (file === undefined || f.file === file));
+}
+
+function generate(dir, spec) {
+  for (const key of Object.keys(spec)) {
+    switch (key) {
+      default:
+        throw new Error(`unknown generate key: ${key}`);
+    }
+  }
+  void dir;
+}
+
+function overlayFiles(srcDir, rel = "") {
+  const out = [];
+  for (const ent of fs.readdirSync(path.join(srcDir, rel), { withFileTypes: true })) {
+    const r = rel === "" ? ent.name : `${rel}/${ent.name}`;
+    if (rel === "" && (ent.name === "DELETE" || ent.name === "expect.json")) continue;
+    if (ent.isDirectory()) out.push(...overlayFiles(srcDir, r));
+    else out.push(r);
+  }
+  return out;
+}
+
+export function applyFixture(ruleName, dir) {
+  const src = path.join(FIXTURES, ruleName);
+  const expect = JSON.parse(fs.readFileSync(path.join(src, "expect.json"), "utf8"));
+  copyMinimalValid(dir);
+  const del = path.join(src, "DELETE");
+  if (fs.existsSync(del)) {
+    for (const line of fs.readFileSync(del, "utf8").split("\n")) {
+      const rel = line.trim();
+      if (rel !== "") fs.rmSync(path.join(dir, rel), { recursive: true, force: true });
+    }
+  }
+  for (const rel of overlayFiles(src)) {
+    const abs = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.copyFileSync(path.join(src, rel), abs);
+  }
+  if (expect.generate) generate(dir, expect.generate);
+  return expect;
+}
+
+export function runFixture(t, ruleName, { mutate } = {}) {
+  const dir = makeTempDir(t);
+  const expect = applyFixture(ruleName, dir);
+  if (mutate) mutate(dir);
+  const r = runJson([dir, "--json", "--today", expect.today ?? "2026-10-22"]);
+  return { expect, dir, code: r.code, result: r.result };
+}
+
+const PNG_MAGIC =Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 function pngChunk(type, data) {
   const len = Buffer.alloc(4);

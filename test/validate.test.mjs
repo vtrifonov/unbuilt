@@ -152,3 +152,32 @@ test("malformed containers return an error, never throw or hang (R-VAL-43)", { t
   const e = extractImageText(makePng({ text: [{ keyword: "Author", text: "cut" }], truncate: true }));
   assert.equal(e.format, "png"); assert.match(e.error, /truncated PNG/);
 });
+
+import { RULES, SUPPORTED_FORMAT_VERSION } from "../scripts/lib/rules.mjs";
+import { copyMinimalValid, writeIn, readIn, FIXTURES } from "./helpers.mjs";
+
+test("minimal-valid passes with zero findings and prints ok (R-TST-4, R-VAL-5)", () => {
+  const j = runJson([path.join(FIXTURES, "minimal-valid"), "--json", "--today", "2026-10-22"]);
+  assert.equal(j.code, 0); assert.deepEqual(j.result, { errors: [], warnings: [] });
+  const h = runCli([path.join(FIXTURES, "minimal-valid"), "--today", "2026-10-22"]);
+  assert.equal(h.stdout, "ok: minimal-valid passes unbuilt format 1\n");
+});
+test("internal error exits 2 (R-VAL-3)", () => {
+  const r = runCli([path.join(FIXTURES, "minimal-valid")], { env: { UNBUILT_VALIDATE_THROW: "1" } });
+  assert.equal(r.code, 2); assert.equal(r.stdout, ""); assert.match(r.stderr, /^internal error: /);
+});
+test("validator writes nothing (R-VAL-4)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  const snap = () => JSON.stringify([...walkInstance(dir).entries].map((e) => [e.path, e.size, fs.statSync(path.join(dir, e.path)).mtimeMs, fs.readFileSync(path.join(dir, e.path), "latin1")]));
+  const before = snap(); runCli([dir, "--today", "2026-10-22"]); assert.equal(snap(), before);
+});
+test("unsupported version stops other rules (R-FMT-9)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, "unbuilt.yaml", fs.readFileSync(path.join(dir, "unbuilt.yaml"), "utf8").replace("unbuilt: 1", "unbuilt: 2"));
+  fs.rmSync(path.join(dir, "constraints.md"));
+  const j = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(j.code, 1);
+  assert.deepEqual(j.result.warnings, []);
+  assert.deepEqual(j.result.errors, [{ rule: "yaml-fields", file: "unbuilt.yaml", line: 1, message: "format version 2 is not supported by this validator (supports 1); see CHANGELOG.md" }]);
+});
+test("SUPPORTED_FORMAT_VERSION is the integer 1 (R-VAL-9)", () => { assert.equal(SUPPORTED_FORMAT_VERSION, 1); assert.ok(Array.isArray(RULES)); });

@@ -1,7 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { isCalendarDate } from "./lib/rules.mjs";
+import { RULES, SUPPORTED_FORMAT_VERSION, finding, isCalendarDate } from "./lib/rules.mjs";
+import { DEFAULT_ALLOW_HOSTS, maskText } from "./lib/redaction.mjs";
+import { walkInstance, readText } from "./lib/walk.mjs";
+import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
+import { extractImageText } from "./lib/image-meta.mjs";
+import { parse } from "./lib/yaml-subset.mjs";
 
 export const USAGE = "usage: node scripts/validate.mjs <instance-dir> [--json] [--today YYYY-MM-DD]\n       node scripts/validate.mjs --help\n";
 
@@ -62,10 +67,92 @@ export function formatJson(findings) {
   }, null, 2) + "\n";
 }
 
-function validate(dir, today) {
-  void today;
+const IMAGE_META_EXTS = ["png", "jpg", "jpeg", "webp"];
+
+function exactHostsOf(meta) {
+  const hosts = [];
+  const ref = meta.reference_impl;
+  if (typeof ref === "string" && (ref.startsWith("https://") || ref.startsWith("http://"))) {
+    try { hosts.push(new URL(ref).hostname.toLowerCase()); } catch { /* not a URL */ }
+  }
+  if (Array.isArray(meta.public_hosts)) for (const h of meta.public_hosts) if (typeof h === "string") hosts.push(h);
+  return hosts;
+}
+
+function normaliseModules(meta, yaml) {
+  if (!Array.isArray(meta.modules)) return [];
+  const str = (v) => (typeof v === "string" ? v : null);
+  return meta.modules.map((m, index) => {
+    const obj = m !== null && typeof m === "object" ? m : {};
+    const p = str(obj.path);
+    return { index, id: str(obj.id), path: p, dir: p === null ? null : p.replace(/\/+$/, ""), maturity: str(obj.maturity), line: yaml.lines.get(`modules[${index}]`) ?? null };
+  });
+}
+
+function sectionCitations(prose, section, knownPrefixes) {
+  const lines = prose.split("\n").slice(section.startLine - 1, section.endLine).join("\n");
+  return findCitations(lines, knownPrefixes).map((c) => ({ id: c.id, line: c.line + section.startLine - 1 }));
+}
+
+export function buildContext(root, today) {
+  const { entries, dirs, nodeModulesDirs } = walkInstance(root);
+  const files = new Map(entries.filter((e) => e.kind === "file").map((e) => [e.path, e]));
+  const texts = new Map();
+  const images = new Map();
+  for (const e of files.values()) {
+    const abs = path.join(root, e.path);
+    if (e.isText && !e.tooLarge) {
+      try { texts.set(e.path, readText(abs)); } catch { /* unreadable */ }
+    } else if (IMAGE_META_EXTS.includes(e.ext)) {
+      let buf = null;
+      try { buf = fs.readFileSync(abs); } catch { /* unreadable */ }
+      if (buf) images.set(e.path, extractImageText(buf));
+    }
+  }
+  const yaml = texts.has("unbuilt.yaml") ? parse(texts.get("unbuilt.yaml")) : null;
+  const meta = yaml && yaml.errors.length === 0 ? yaml.value : null;
+  const versionError = meta !== null && typeof meta.unbuilt === "number" && meta.unbuilt !== SUPPORTED_FORMAT_VERSION;
+  const metaUsable = meta !== null && !versionError;
+  const modules = metaUsable ? normaliseModules(meta, yaml) : [];
+  const moduleIds = modules.map((m) => m.id).filter((id) => id !== null);
+  const knownPrefixes = [...moduleIds, "INV"];
+  const prose = new Map();
+  for (const [p, text] of texts) if (p.endsWith(".md")) prose.set(p, blankCommentsAndFences(text));
+  const moduleDirs = modules.map((m) => m.dir).filter((d) => d !== null);
+  const declFiles = [...new Set(["SPEC.md", ...moduleDirs.map((d) => d + "/SPEC.md")])].filter((f) => prose.has(f));
+  const attempts = [];
+  if (metaUsable) for (const file of declFiles) for (const a of findAttempts(prose.get(file), knownPrefixes)) attempts.push({ ...a, file });
+  const declarations = attempts.filter((a) => a.exact !== null).map((a) => ({ id: a.exact.id, prefix: a.exact.prefix, num: a.exact.num, modality: a.exact.modality, retired: a.exact.retired, inferred: a.exact.inferred, file: a.file, line: a.line }));
+  const scenarioFiles = [...new Set(moduleDirs.map((d) => d + "/scenarios.md"))].filter((f) => prose.has(f));
+  const scenarios = [];
+  for (const file of scenarioFiles) {
+    const text = prose.get(file);
+    for (const s of findScenarioSections(text)) scenarios.push({ file, title: s.title, startLine: s.startLine, endLine: s.endLine, citations: sectionCitations(text, s, knownPrefixes) });
+  }
+  const citations = new Map();
+  for (const [p, text] of prose) citations.set(p, findCitations(text, knownPrefixes));
+  return {
+    root, today, entries, dirs: new Set(dirs), files, texts, images, nodeModulesDirs, yaml, meta, versionError, metaUsable,
+    modules, moduleIds, prose, declFiles, attempts, declarations, scenarioFiles, scenarios, citations,
+    allowHosts: DEFAULT_ALLOW_HOSTS, exactHosts: metaUsable ? exactHostsOf(meta) : [],
+  };
+}
+
+export function runRules(ctx) {
+  if (ctx.versionError) {
+    return [finding("error", "yaml-fields", "unbuilt.yaml", ctx.yaml.lines.get("unbuilt"), "format version " + ctx.meta.unbuilt + " is not supported by this validator (supports " + SUPPORTED_FORMAT_VERSION + "); see CHANGELOG.md")];
+  }
+  const findings = [];
+  for (const r of RULES) if (!r.needsMeta || ctx.metaUsable) findings.push(...r.fn(ctx));
+  const opts = { allowHosts: ctx.allowHosts, exactHosts: ctx.exactHosts };
+  return findings.map((f) => ({ ...f, message: maskText(f.message, opts) }));
+}
+
+export function validate(dir, today) {
+  const root = path.resolve(dir);
+  const ctx = buildContext(root, today);
   if (process.env.UNBUILT_VALIDATE_THROW === "1") throw new Error("UNBUILT_VALIDATE_THROW is set");
-  return { findings: [], name: path.basename(path.resolve(dir)) };
+  return { findings: sortFindings(runRules(ctx)), name: ctx.meta?.name ?? path.basename(root) };
 }
 
 function usageFail(message) {
