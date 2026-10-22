@@ -3,23 +3,39 @@ import zlib from "node:zlib";
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const XMP_PREFIX = "http://ns.adobe.com/xap/1.0/";
 
-// Inflated text is capped per image, across all of its chunks, so a small file cannot exhaust memory (decompression bomb).
+// Inflated text is capped per image, across all of its chunks, so a small file cannot exhaust memory (decompression
+// bomb), and per run, across every image file and embed, so many small images cannot either (amendment 7d revised).
 const MAX_INFLATED_BYTES = 1048576;
+const MAX_RUN_INFLATED_BYTES = 8 * 1048576;
 const OVER_CAP = "metadata inflates past 1 MiB";
+const RUN_OVER_CAP = "instance metadata inflates past 8 MiB";
+
+// One budget per validator run; once it is exhausted every further image or embed is refused unparsed.
+export function createInflateBudget() {
+  return { left: MAX_RUN_INFLATED_BYTES, exhausted: false };
+}
 
 const utf8 = (b) => new TextDecoder("utf-8").decode(b);
 
 // Returns the inflated buffer, or a string error that becomes the "cannot be parsed" finding.
-// `budget.left` is the number of inflated bytes this image may still produce.
-function inflateCapped(body, chunk, budget) {
+// `budget.left` is what this image may still produce; `run.left`, when a run budget is given, what the run may.
+function inflateCapped(body, chunk, budget, run) {
+  const runLeft = run === null ? Infinity : run.left;
+  const limit = Math.min(budget.left, runLeft);
+  const overCap = () => {
+    if (runLeft > budget.left) return OVER_CAP;
+    run.exhausted = true;
+    return RUN_OVER_CAP;
+  };
   let out;
   try {
-    out = zlib.inflateSync(body, { maxOutputLength: Math.max(1, budget.left) });
+    out = zlib.inflateSync(body, { maxOutputLength: Math.max(1, limit) });
   } catch (err) {
-    return err?.code === "ERR_BUFFER_TOO_LARGE" ? OVER_CAP : `${chunk} chunk failed to inflate`;
+    return err?.code === "ERR_BUFFER_TOO_LARGE" ? overCap() : `${chunk} chunk failed to inflate`;
   }
-  if (out.length > budget.left) return OVER_CAP;
+  if (out.length > limit) return overCap();
   budget.left -= out.length;
+  if (run !== null) run.left -= out.length;
   return out;
 }
 const latin1 = (b) => Buffer.from(b).toString("latin1");
@@ -36,7 +52,7 @@ function splitNul(data, from = 0) {
   return i < 0 ? [data.subarray(from), data.length] : [data.subarray(from, i), i + 1];
 }
 
-function parsePng(buf, segments) {
+function parsePng(buf, segments, run) {
   let off = 8;
   let seenIdat = false;
   const budget = { left: MAX_INFLATED_BYTES };
@@ -55,7 +71,7 @@ function parsePng(buf, segments) {
       segments.push(latin1(kw) + "\n" + latin1(data.subarray(p)));
     } else if (type === "zTXt") {
       const [kw, p] = splitNul(data);
-      const text = inflateCapped(data.subarray(p + 1), "zTXt", budget);
+      const text = inflateCapped(data.subarray(p + 1), "zTXt", budget, run);
       if (typeof text === "string") return text;
       segments.push(latin1(kw) + "\n" + latin1(text));
     } else if (type === "iTXt") {
@@ -65,7 +81,7 @@ function parsePng(buf, segments) {
       const [tkw, textStart] = splitNul(data, afterLang);
       let body = data.subarray(textStart);
       if (compressed) {
-        body = inflateCapped(body, "iTXt", budget);
+        body = inflateCapped(body, "iTXt", budget, run);
         if (typeof body === "string") return body;
       }
       segments.push(latin1(kw) + "\n" + utf8(tkw) + "\n" + utf8(body));
@@ -117,13 +133,17 @@ function parseWebp(buf, segments) {
   return null;
 }
 
-export function extractImageText(buf) {
+// `run` is a shared budget from createInflateBudget (none: per-image cap only). With `onSegment`, each metadata
+// segment is handed over as soon as it is produced and not kept, so the caller can scan it and hold only the hits.
+export function extractImageText(buf, { run = null, onSegment = null } = {}) {
   const segments = [];
   const format = detect(buf);
   if (format === null) return { format, segments, error: "unrecognised image format" };
+  if (run !== null && run.exhausted) return { format, segments, error: RUN_OVER_CAP };
+  const sink = onSegment === null ? segments : { push: onSegment };
   let error;
   try {
-    error = format === "png" ? parsePng(buf, segments) : format === "jpeg" ? parseJpeg(buf, segments) : parseWebp(buf, segments);
+    error = format === "png" ? parsePng(buf, sink, run) : format === "jpeg" ? parseJpeg(buf, sink) : parseWebp(buf, sink);
   } catch {
     error = format === "png" ? "truncated PNG chunk" : format === "jpeg" ? "malformed JPEG segment" : "truncated WebP chunk";
   }

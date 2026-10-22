@@ -5,7 +5,7 @@ import { MAX_IMAGE_BYTES, RULES, SUPPORTED_FORMAT_VERSION, finding, isCalendarDa
 import { DEFAULT_ALLOW_HOSTS, maskMatch, maskText, scanText } from "./lib/redaction.mjs";
 import { walkInstance, readText } from "./lib/walk.mjs";
 import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
-import { extractImageText } from "./lib/image-meta.mjs";
+import { createInflateBudget, extractImageText } from "./lib/image-meta.mjs";
 import { parse } from "./lib/yaml-subset.mjs";
 
 export const USAGE = "usage: node scripts/validate.mjs <instance-dir> [--json] [--today YYYY-MM-DD]\n       node scripts/validate.mjs --help\n";
@@ -98,27 +98,39 @@ const EMBED_RE = /data:image\/([A-Za-z0-9.+-]+)((?:;[A-Za-z0-9=.+-]*)*),((?:\s|&
 const EMBED_BREAKS_RE = /\s|&#(?:10|13|x0?[aAdD]);/g;
 const EMBED_FORMATS = { png: "png", jpeg: "jpeg", jpg: "jpeg", webp: "webp" };
 
-function scanEmbed(type, params, payload) {
-  const format = EMBED_FORMATS[type];
-  if (format === undefined) return { error: `data:image/${type} is not png, jpeg or webp`, segments: [] };
-  if (!params.split(";").includes("base64")) return { error: `data:image/${type} is not base64-encoded`, segments: [] };
-  const buf = Buffer.from(payload.replace(EMBED_BREAKS_RE, ""), "base64");
-  if (buf.length > MAX_IMAGE_BYTES) return { error: `decodes to ${buf.length} bytes; the limit is ${MAX_IMAGE_BYTES}`, segments: [] };
-  const img = extractImageText(buf);
-  let error = img.error;
-  if (error === null && img.format !== format) error = `${img.format} content in a data:image/${type} URI`;
-  return { error, segments: img.format === null ? [] : img.segments };
+// A raster's metadata segments are leak-scanned as they are produced and only the hits are kept, so memory is
+// bounded by the hits, not by the inflated text; `run` is the run-wide inflate budget (amendment 7d revised).
+function scanImage(buf, run, opts) {
+  const hits = [];
+  const onSegment = (seg) => { for (const h of scanText(seg, opts)) hits.push(h); };
+  const img = extractImageText(buf, { run, onSegment });
+  return { format: img.format, error: img.error, hits };
 }
 
-function findEmbeds(texts) {
+function scanEmbed(type, params, payload, run, opts) {
+  const format = EMBED_FORMATS[type];
+  if (format === undefined) return { error: `data:image/${type} is not png, jpeg or webp`, hits: [] };
+  if (!params.split(";").includes("base64")) return { error: `data:image/${type} is not base64-encoded`, hits: [] };
+  const buf = Buffer.from(payload.replace(EMBED_BREAKS_RE, ""), "base64");
+  if (buf.length > MAX_IMAGE_BYTES) return { error: `decodes to ${buf.length} bytes; the limit is ${MAX_IMAGE_BYTES}`, hits: [] };
+  const img = scanImage(buf, run, opts);
+  let error = img.error;
+  if (error === null && img.format !== format) error = `${img.format} content in a data:image/${type} URI`;
+  return { error, hits: img.hits };
+}
+
+// An .svg over the image size budget is reported by budget-image, so its embeds are not parsed.
+function findEmbeds(texts, files, run, opts) {
   const embeds = [];
   for (const [file, text] of texts) {
+    const entry = files.get(file);
+    if (entry?.ext === "svg" && entry.size > MAX_IMAGE_BYTES) continue;
     let line = 1;
     let from = 0;
     for (const m of text.matchAll(EMBED_RE)) {
       for (let i = text.indexOf("\n", from); i !== -1 && i < m.index; i = text.indexOf("\n", i + 1)) line++;
       from = m.index;
-      embeds.push({ file, line, ...scanEmbed(m[1].toLowerCase(), m[2].toLowerCase(), m[3]) });
+      embeds.push({ file, line, ...scanEmbed(m[1].toLowerCase(), m[2].toLowerCase(), m[3], run, opts) });
     }
   }
   return embeds;
@@ -160,11 +172,8 @@ function collectLeakHits(texts, images, embeds, paths, dirs, opts) {
     if (name !== null) hits.push({ file: d, line: null, match: `/${segs[segs.length - 2]}/${name}`, pattern: "home-path" });
   }
   for (const [file, text] of texts) keep(file, scanText(text, opts));
-  for (const [file, img] of images) {
-    if (img.format === null) continue;
-    for (const seg of img.segments) keep(file, scanText(seg, opts), null);
-  }
-  for (const e of embeds) for (const seg of e.segments) keep(e.file, scanText(seg, opts), e.line);
+  for (const [file, img] of images) keep(file, img.hits, null);
+  for (const e of embeds) keep(e.file, e.hits, e.line);
   return hits;
 }
 
@@ -178,16 +187,13 @@ export function buildContext(root, today) {
   const { entries, dirs, nodeModulesDirs } = walkInstance(root);
   const files = new Map(entries.filter((e) => e.kind === "file").map((e) => [e.path, e]));
   const texts = new Map();
-  const images = new Map();
+  const rasters = [];
   for (const e of files.values()) {
-    const abs = path.join(root, e.path);
     if (e.isText && !e.tooLarge) {
-      try { texts.set(e.path, readText(abs)); } catch { /* unreadable */ }
+      try { texts.set(e.path, readText(path.join(root, e.path))); } catch { /* unreadable */ }
     } else if (IMAGE_META_EXTS.includes(e.ext) && e.size <= MAX_IMAGE_BYTES) {
       // An image over the size budget is reported by budget-image and never read or parsed.
-      let buf = null;
-      try { buf = fs.readFileSync(abs); } catch { /* unreadable */ }
-      if (buf) images.set(e.path, extractImageText(buf));
+      rasters.push(e);
     }
   }
   const yaml = texts.has("unbuilt.yaml") ? parse(texts.get("unbuilt.yaml")) : null;
@@ -215,8 +221,17 @@ export function buildContext(root, today) {
   for (const [p, text] of prose) citations.set(p, findCitations(text, knownPrefixes));
   const allowHosts = DEFAULT_ALLOW_HOSTS;
   const exactHosts = metaUsable ? exactHostsOf(meta) : [];
-  const embeds = findEmbeds(texts);
-  const leakHits = collectLeakHits(texts, images, embeds, [...entries.map((e) => e.path), ...dirs], dirs, { allowHosts, exactHosts });
+  const leakOpts = { allowHosts, exactHosts };
+  // Rasters are read after unbuilt.yaml so their metadata can be scanned with the instance's public hosts.
+  const run = createInflateBudget();
+  const images = new Map();
+  for (const e of rasters) {
+    let buf = null;
+    try { buf = fs.readFileSync(path.join(root, e.path)); } catch { /* unreadable */ }
+    if (buf) images.set(e.path, scanImage(buf, run, leakOpts));
+  }
+  const embeds = findEmbeds(texts, files, run, leakOpts);
+  const leakHits = collectLeakHits(texts, images, embeds, [...entries.map((e) => e.path), ...dirs], dirs, leakOpts);
   return {
     root, today, entries, dirs: new Set(dirs), files, texts, images, embeds, nodeModulesDirs, yaml, meta, versionError, metaUsable,
     modules, moduleIds, prose, declFiles, attempts, declarations, scenarioFiles, scenarios, citations,

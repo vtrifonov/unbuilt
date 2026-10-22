@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
-import { extractImageText } from "../scripts/lib/image-meta.mjs";
+import { createInflateBudget, extractImageText } from "../scripts/lib/image-meta.mjs";
 import { buildContext } from "../scripts/validate.mjs";
 import { copyMinimalValid, makePng, makeTempDir, runJson } from "./helpers.mjs";
 
@@ -81,6 +81,43 @@ test("whitespace and line-break entities after the comma or inside the payload d
   }
   const prose = runWith(t, { "notes.md": "# Notes\n\nUse `data:image/png;base64, ...` or `data:image/png;base64,\n<payload>` here.\n" });
   assert.deepEqual(pick(prose.result), []);
+});
+
+const bombPng = () => makePng({ ztxt: [{ keyword: "Comment", deflated: zlib.deflateSync(Buffer.alloc(1000000, 0x61)) }] });
+
+test("one inflate budget of 8 MiB is shared by every image in a run; segments go to a callback, not an array (amendment 7d revised)", () => {
+  const run = createInflateBudget();
+  const seen = [];
+  const results = Array.from({ length: 9 }, () => extractImageText(bombPng(), { run, onSegment: (s) => seen.push(s.length) }));
+  assert.deepEqual(results.slice(0, 8).map((r) => r.error), Array(8).fill(null));
+  assert.equal(results[8].error, "instance metadata inflates past 8 MiB");
+  assert.ok(results.every((r) => r.segments.length === 0));
+  assert.equal(seen.length, 8);
+  const clean = extractImageText(makePng({ text: [{ keyword: "a", text: "b" }] }), { run });
+  assert.equal(clean.error, "instance metadata inflates past 8 MiB");
+  assert.equal(extractImageText(bombPng()).error, null);
+});
+
+test("20 bomb PNGs and 20 bomb embeds trip the run inflate budget with file-types errors (security recheck 11)", (t) => {
+  const files = {};
+  for (let i = 0; i < 20; i++) files[`design/b${String(i).padStart(2, "0")}.png`] = bombPng();
+  const href = "data:image/png;base64," + bombPng().toString("base64");
+  files["design/mock.svg"] = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">\n${Array(20).fill(`<image xlink:href="${href}"/>`).join("\n")}\n</svg>\n`;
+  const { code, result } = runWith(t, files);
+  assert.equal(code, 1);
+  const over = result.errors.filter((f) => f.rule === "file-types" && f.message.includes("(instance metadata inflates past 8 MiB)"));
+  assert.deepEqual(over.filter((f) => f.file !== "design/mock.svg").map((f) => f.file), Array.from({ length: 12 }, (_, i) => `design/b${String(i + 8).padStart(2, "0")}.png`));
+  assert.deepEqual(over.filter((f) => f.file === "design/mock.svg").map((f) => f.line), Array.from({ length: 20 }, (_, i) => i + 2));
+  assert.equal(result.errors.length, over.length);
+});
+
+test("an SVG over the image budget is reported by budget-image and its embeds are not parsed (security recheck 11)", (t) => {
+  const svg = svgWith("data:image/png;base64," + xmpPng().toString("base64")).replace("</svg>", `<!-- ${"p".repeat(2097152)} -->\n</svg>`);
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  fs.writeFileSync(path.join(dir, "design/mock.svg"), svg);
+  assert.deepEqual(buildContext(dir, "2026-10-22").embeds, []);
+  const { result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.deepEqual(pick(result), [["budget-image", "design/mock.svg", undefined]]);
 });
 
 function makeJpegWithPath() {
