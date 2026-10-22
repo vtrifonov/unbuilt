@@ -149,7 +149,10 @@ export const TLDS = [
   "jp", "cn", "kr", "br", "mx", "nz", "za", "ru", "ua", "tr", "il", "sg", "hk", "tw", "vn", "ly", "gg", "tv", "fm",
   "internal", "lan", "corp", "intranet", "arpa",
 ];
-const BARE_HOST_RE = new RegExp(`(?<![@\\w.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:${TLDS.join("|")}))(?![\\w-])`, "gi");
+// Labels may hold non-ASCII letters (and combining marks after the first character), so an IDN host matches whole
+// and goes through the punycode allow check; the lookbehind keeps a match from starting inside a label (security
+// recheck 17).
+const BARE_HOST_RE = new RegExp(`(?<![@\\p{L}\\p{M}\\p{N}_.-])((?:[\\p{L}\\p{N}](?:[\\p{L}\\p{M}\\p{N}-]{0,61}[\\p{L}\\p{M}\\p{N}])?\\.)+(?:${TLDS.join("|")}))(?![\\w-])`, "giu");
 // The scheme is bounded to 32 characters, so each start costs at most 32 steps and `_`, `-`, `.` or `+`
 // before a scheme never blocks a match (amendment 7c revised).
 const URL_HOST_RE = /(?<![A-Za-z0-9])[a-z][a-z0-9+.-]{0,31}:\/\/([^/\s?#\[\]"'<>()`]+)/gi;
@@ -182,17 +185,20 @@ function scanAuthorities(text, opts, taken, hosts, passwords) {
       passwords.push({ pattern: "secret", start, end: start + at, match: userinfo });
     }
     taken.fill(1, start, start + authority.length);
+    // A hostname in the userinfo (a host name before the "@") is scanned like a bare host (security recheck 17).
+    if (at > 0) scanBareHosts(userinfo, opts, null, hosts, start);
     if (!host || IPV4_FULL_RE.test(host) || host.startsWith("[")) continue;
     if (hostAllowedNormalized(host, opts)) continue;
     hosts.add({ pattern: "hostname", start: hostStart, end: hostStart + host.length, match: host });
   }
 }
 
-// `taken` holds every URL authority and reported email, so a bare host inside one is not reported again.
-function scanBareHosts(text, opts, taken, hosts) {
+// `taken` holds every URL authority and reported email, so a bare host inside one is not reported again; it is
+// null for a userinfo, whose offsets are shifted by `offset` into the full text.
+function scanBareHosts(text, opts, taken, hosts, offset = 0) {
   for (const m of text.matchAll(BARE_HOST_RE)) {
-    const span = { start: m.index, end: m.index + m[0].length };
-    if (masked(taken, span)) continue;
+    const span = { start: offset + m.index, end: offset + m.index + m[0].length };
+    if (taken !== null && masked(taken, span)) continue;
     if (hostAllowedNormalized(m[1], opts)) continue;
     hosts.add({ pattern: "hostname", ...span, match: m[1] });
   }

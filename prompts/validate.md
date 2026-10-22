@@ -53,7 +53,7 @@ The walk skips any entry named `.git`, file or directory. The `leak-*` rules sca
 | `design-required` | `design/README.md` exists when `has_ui` is true. | error |
 | `leak-email` | Email addresses outside the example domains. | error |
 | `leak-ipv4` | IPv4, IPv6 and MAC addresses outside the allowlists and the version exception. | error |
-| `leak-hostname` | Hostnames under listed TLDs and every URL host that is not allowed, compared after stripping trailing punctuation and in punycode as well as raw form. | error |
+| `leak-hostname` | Hostnames under listed TLDs, whose labels may hold non-ASCII letters, including one in a URL's userinfo, and every URL host that is not allowed, compared after stripping trailing punctuation and in punycode as well as raw form. | error |
 | `leak-home-path` | Home directory paths on macOS, Linux and Windows, tilde-user paths, and a `Users/<name>` or `home/<name>` directory chain in the instance. | error |
 | `leak-secret` | Known secret shapes; credential assignments whose key ends in a credential noun such as password, secret, token or api key; `Bearer` values after `Authorization:`, after a quote or a backtick unless two hyphen-separated parts are letters-only words of four or more letters, or with a digit and a letter in each half. | error |
 | `budget-file-lines` | Each `.md` file has at most 1,500 lines; no text file is too large to scan. | error |

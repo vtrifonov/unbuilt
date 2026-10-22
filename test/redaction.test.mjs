@@ -246,6 +246,23 @@ test("the punycode retry never allows a host that is not a plain IDN label seque
   assert.equal(isHostAllowed("github.com\\ü.widgets-intranet.com"), false);
   assert.equal(isHostAllowed("bücher.github.com"), true);
 });
+test("bare-host labels may hold non-ASCII letters, and a host in URL userinfo is reported (security recheck 17)", () => {
+  const rows = [
+    ["see ü.widgets-intranet.com for logs", ["ü.widgets-intranet.com"]],
+    ["see café-build.widgets-intranet.com for logs", ["café-build.widgets-intranet.com"]],
+    ["see café-build.widgets-intranet.com for logs", ["café-build.widgets-intranet.com"]],
+    ["see bücher.widgets-intranet.com/notes", ["bücher.widgets-intranet.com"]],
+    ["https://build.widgets-intranet.com@github.com/", ["build.widgets-intranet.com"]],
+    ["https://ops:build.widgets-intranet.com@github.com/", ["build.widgets-intranet.com"]],
+  ];
+  for (const [t, want] of rows) assert.deepEqual(hits(t, "hostname").map((f) => f.match), want, t);
+  const f = scanText("x https://build.widgets-intranet.com@github.com/");
+  assert.deepEqual(f.map((h) => [h.pattern, h.column]), [["hostname", 11]]);
+  assert.equal(maskText("https://build.widgets-intranet.com@github.com/"), "https://bu…@github.com/");
+  const negatives = ["see münchen.example.com and ünïcode.github.com", "naïve.approach is fine, résumé.pdf too", "https://alice@github.com/x", "https://ops:@github.com/",
+    "Größe.Breite is a field path", "日本語.テスト"];
+  for (const t of negatives) assert.deepEqual(hits(t, "hostname"), [], t);
+});
 test("the bare-host overlap filter is linear: 1 MiB of URLs scans under 2 s (correctness recheck 15)", () => {
   const text = "https://x.io/ ".repeat(Math.ceil(1048576 / 14));
   const t0 = performance.now();
