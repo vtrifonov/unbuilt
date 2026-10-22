@@ -99,8 +99,8 @@ export function yamlFields(ctx) {
   if (Array.isArray(meta.public_hosts) && meta.public_hosts.every(isStr)) {
     const seen = new Set();
     meta.public_hosts.forEach((v, i) => {
-      if (!HOSTNAME_RE.test(v) && !isIpLiteral(v)) err(`public_hosts[${i}]`, `public_hosts entry "${v}" is not a lowercase hostname or an IP literal (FORMAT.md §7)`);
-      else if (seen.has(v)) err(`public_hosts[${i}]`, `public_hosts entry "${v}" is listed twice (FORMAT.md §7)`);
+      if (!HOSTNAME_RE.test(v) && !isIpLiteral(v)) err(`public_hosts[${i}]`, `public_hosts entry "${v}" is not a lowercase hostname or an IP literal (FORMAT.md §3)`);
+      else if (seen.has(v)) err(`public_hosts[${i}]`, `public_hosts entry "${v}" is listed twice (FORMAT.md §3)`);
       seen.add(v);
     });
   }

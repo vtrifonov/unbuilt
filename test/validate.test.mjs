@@ -375,6 +375,12 @@ test("yaml-enums, module-ids and module-paths branches (R-YML-2, R-YML-5, R-YML-
   }
   const twice = mutYaml(t, (y) => y + "public_hosts:\n  - docs.example-public.org\n  - docs.example-public.org\n");
   assert.ok(twice.errors.some((f) => f.rule === "yaml-fields" && f.message.includes("is listed twice")));
+  // The entry grammar lives in FORMAT.md §3, so both public_hosts messages cite §3 (security review finding m8).
+  const hosts = mutYaml(t, (y) => y + "public_hosts:\n  - Docs.Example-Public.org\n  - docs.example-public.org\n  - docs.example-public.org\n");
+  assert.deepEqual(hosts.errors.filter((f) => f.rule === "yaml-fields").map((f) => [f.line, f.message]), [
+    [18, 'public_hosts entry "Docs.Example-Public.org" is not a lowercase hostname or an IP literal (FORMAT.md §3)'],
+    [20, 'public_hosts entry "docs.example-public.org" is listed twice (FORMAT.md §3)'],
+  ]);
 });
 test("module-paths: a module path must be modules/<kebab-case> (amendment 8c)", (t) => {
   // Each bad path names an existing directory, so only the shape can fail it.
