@@ -331,6 +331,58 @@ function substitutionMatrix(ctx) {
   return out;
 }
 
+const EVIDENCE_NAME_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9]+(-[a-z0-9]+)*\.md$/;
+
+function evidenceDates(ctx) {
+  const out = [];
+  for (const p of [...ctx.files.keys()].sort()) {
+    const m = /^evidence\/([^/]+\.md)$/.exec(p);
+    if (!m) continue;
+    const err = (line, msg) => out.push(finding("error", "evidence-dates", p, line, msg));
+    if (!EVIDENCE_NAME_RE.test(m[1])) err(null, `evidence file name "${m[1]}" must be YYYY-MM-DD-slug.md (FORMAT.md §4)`);
+    if (!ctx.texts.has(p)) continue;
+    const lines = ctx.texts.get(p).split("\n").map((l) => l.replace(/\r$/, ""));
+    let i = 0;
+    while (i < lines.length && lines[i].trim() === "") i++;
+    if (i < lines.length && /^# /.test(lines[i])) i++;
+    const found = {};
+    let seen = 0;
+    for (; i < lines.length && seen < 2; i++) {
+      if (lines[i].trim() === "") continue;
+      seen++;
+      const k = /^(Checked|Expires):(.*)$/.exec(lines[i]);
+      if (k && !(k[1] in found)) found[k[1]] = { value: k[2].trim(), line: i + 1 };
+    }
+    for (const key of ["Checked", "Expires"]) if (!(key in found)) err(null, `${key}: line is missing (FORMAT.md §4)`);
+    const valid = {};
+    for (const key of ["Checked", "Expires"]) {
+      const f = found[key];
+      if (!f) continue;
+      if (isCalendarDate(f.value)) valid[key] = f;
+      else err(f.line, `${key}: ${f.value} is not a calendar date (FORMAT.md §4)`);
+    }
+    if (valid.Checked && valid.Expires) {
+      const c = valid.Checked.value;
+      const e = valid.Expires.value;
+      if (e < c) err(valid.Expires.line, `Expires: ${e} is before Checked: ${c} (FORMAT.md §4)`);
+    }
+    if (valid.Expires && valid.Expires.value < ctx.today) {
+      out.push(finding("warning", "evidence-dates", p, valid.Expires.line, `expired on ${valid.Expires.value}; re-check before relying on it (FORMAT.md §4)`));
+    }
+  }
+  return out;
+}
+
+function redactionRequired(ctx) {
+  if (ctx.meta.origin !== ORIGINS[1] || ctx.files.has("redaction.md")) return [];
+  return [finding("error", "redaction-required", "redaction.md", null, "redaction.md is required when origin is extracted-from-private-implementation (FORMAT.md §3)")];
+}
+
+function designRequired(ctx) {
+  if (ctx.meta.has_ui !== true || ctx.files.has("design/README.md")) return [];
+  return [finding("error", "design-required", "design/README.md", null, "design/README.md is required when has_ui is true (FORMAT.md §3)")];
+}
+
 RULES.push(
   { name: "required-files", fn: requiredFiles, needsMeta: false },
   { name: "module-files", fn: moduleFiles, needsMeta: true },
@@ -347,6 +399,9 @@ RULES.push(
   { name: "should-has-scenario", fn: shouldHasScenario, needsMeta: true },
   { name: "substitution-files", fn: substitutionFiles, needsMeta: true },
   { name: "substitution-matrix", fn: substitutionMatrix, needsMeta: true },
+  { name: "evidence-dates", fn: evidenceDates, needsMeta: false },
+  { name: "redaction-required", fn: redactionRequired, needsMeta: true },
+  { name: "design-required", fn: designRequired, needsMeta: true },
 );
 
 export function isCalendarDate(s) {

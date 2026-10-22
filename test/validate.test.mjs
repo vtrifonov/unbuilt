@@ -404,3 +404,16 @@ test("matrix row and cell errors (rule 15)", (t) => {
   const msgs = rows.result.errors.filter((f) => f.rule === "substitution-matrix").map((f) => f.message);
   assert.ok(msgs.some((m) => m.includes('row "PICK"')) && msgs.some((m) => m.includes("missing row CORE")) && msgs.some((m) => m.includes('cell "yes"')));
 });
+
+test("evidence-dates: expired warning, bad date, equal date, name shape (rule 16)", (t) => {
+  const ev = "evidence/2026-10-01-storage-api.md";
+  const expired = runFixture(t, "evidence-dates", { mutate: (d) => writeIn(d, ev, "# Storage API\n\nChecked: 2025-01-10\nExpires: 2025-07-10\n") });
+  assert.ok(expired.result.warnings.some((f) => f.rule === "evidence-dates" && f.file === ev && f.line === 4 && f.message === "expired on 2025-07-10; re-check before relying on it (FORMAT.md §4)"));
+  assert.deepEqual(expired.result.errors, []);
+  const bad = runFixture(t, "evidence-dates", { mutate: (d) => writeIn(d, ev, "Checked: 2026-02-30\nExpires: 2027-01-01\n") });
+  assert.ok(bad.result.errors.some((f) => f.rule === "evidence-dates" && f.line === 1 && f.message.includes("not a calendar date")));
+  const equal = runFixture(t, "evidence-dates", { mutate: (d) => writeIn(d, ev, "Expires: 2026-10-22\nChecked: 2026-01-01\n") });
+  assert.ok(![...equal.result.errors, ...equal.result.warnings].some((f) => f.rule === "evidence-dates"));
+  const name = runFixture(t, "evidence-dates", { mutate: (d) => { writeIn(d, ev, "Checked: 2026-01-01\nExpires: 2027-01-01\n"); writeIn(d, "evidence/notes.md", "Checked: 2026-01-01\nExpires: 2027-01-01\n"); } });
+  assert.ok(has(name.result, "evidence-dates", "error", "evidence/notes.md"));
+});
