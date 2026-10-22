@@ -763,3 +763,56 @@ test("many module entries sharing one path parse it once per side (review follow
   assert.equal(many.json.scenarios.added.length, 1000);
   for (const id of ["CORE", ...Array.from({ length: 999 }, (_, i) => `M${i}`)]) assert.deepEqual(fresh(many.json, id), [{ ...expected, module: id }], id);
 });
+
+const BAD = "\u001b[31m\u202e\u0085\u200b\u2060\ufe0f\ufeff\u{e0049}\u{e0067}";
+const BAD_CHARS = [..."\u001b\u202e\u0085\u200b\u2060\ufe0f\ufeff\u{e0049}\u{e0067}"];
+const badTitle = ({ newDir }) => edit(newDir, "modules/core/scenarios.md", "## Capture a note", "## Capture " + BAD + " note");
+
+test("control, bidi and tag characters never reach the terminal raw (R-DIF-12, R-DIF-13)", (t) => {
+  const c = sides(t);
+  badTitle(c);
+  const human = runDiff([c.oldDir, c.newDir]);
+  for (const ch of BAD_CHARS) assert.ok(!human.stdout.includes(ch), JSON.stringify(ch));
+  assert.ok(human.stdout.includes('scenarios.added  CORE "Capture ?[31m???????? note" cites CORE-1 INV-1'), human.stdout);
+  const json = runDiff([c.oldDir, c.newDir, "--json"]);
+  for (const ch of BAD_CHARS) assert.ok(!json.stdout.includes(ch), JSON.stringify(ch));
+  for (const esc of ["\\u001b", "\\u202e", "\\u0085", "\\u200b", "\\u2060", "\\ufe0f", "\\ufeff", "\\udb40\\udc49", "\\udb40\\udc67"]) assert.ok(json.stdout.includes(esc), esc);
+  assert.equal(JSON.parse(json.stdout).scenarios.added[0].title, "Capture " + BAD + " note");
+});
+
+test("paths are sanitised in human output (R-DIF-12)", (t) => {
+  const c = sides(t);
+  writeIn(c.newDir, "decisions/x\u202e.md", "# x\n");
+  const { stdout } = runDiff([c.oldDir, c.newDir]);
+  assert.ok(stdout.includes("files.added  decisions/x?.md"), stdout);
+  assert.ok(!stdout.includes("\u202e"));
+});
+
+test("U+007F is escaped in JSON (R-DIF-13)", (t) => {
+  const c = sides(t);
+  writeIn(c.newDir, "decisions/del\u007f.md", "# d\n");
+  const { stdout } = runDiff([c.oldDir, c.newDir, "--json"]);
+  assert.ok(stdout.includes("decisions/del\\u007f.md"), stdout);
+  assert.ok(!stdout.includes("\u007f"));
+});
+
+test("JSON output stays valid pretty-printed JSON with no raw escaped code point (R-DIF-13)", (t) => {
+  const c = sides(t);
+  badTitle(c);
+  writeIn(c.newDir, "decisions/x\u2028\u2029\u0085.md", "# x\n");
+  const { code, stdout } = runDiff([c.oldDir, c.newDir, "--json"]);
+  assert.equal(code, 1);
+  const parsed = JSON.parse(stdout);
+  assert.ok(stdout.startsWith('{\n  "changed": true,\n'));
+  assert.ok(stdout.endsWith("}\n"));
+  assert.ok(!stdout.includes("\\u000a"));
+  assert.equal(/[\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufe00-\ufe0f\ufeff\u{e0000}-\u{e007f}]/u.test(stdout), false);
+  assert.ok(parsed.files.added.includes("decisions/x\u2028\u2029\u0085.md"));
+});
+
+test("example instance against a copy (R-DIF-45)", (t) => {
+  const tmp = makeTempDir(t);
+  const example = path.join(REPO_ROOT, "examples", "clipjar");
+  fs.cpSync(example, path.join(tmp, "copy"), { recursive: true });
+  assert.equal(runDiff([example, path.join(tmp, "copy")]).code, 0);
+});

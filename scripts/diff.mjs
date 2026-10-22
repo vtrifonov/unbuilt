@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { sanitize, InstanceError, scanInstance, readIncludedFile, writeError } from "./snapshot.mjs";
+import { sanitize, JSON_ESCAPE_RE, InstanceError, scanInstance, readIncludedFile, writeError } from "./snapshot.mjs";
 import { parse } from "./lib/yaml-subset.mjs";
 import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
 
@@ -358,7 +358,8 @@ export function formatHuman(result) {
 }
 
 export function formatJson(result) {
-  return JSON.stringify(result, null, 2) + "\n";
+  const escape = (ch) => [...Array(ch.length).keys()].map((i) => "\\u" + ch.charCodeAt(i).toString(16).padStart(4, "0")).join("");
+  return JSON.stringify(result, null, 2).replace(JSON_ESCAPE_RE, escape) + "\n";
 }
 
 function usageFail(message) {
