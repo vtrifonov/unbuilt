@@ -303,3 +303,114 @@ test("requirement IDs sort numerically (R-DIF-17)", (t) => {
   const r = diffJson(t, ({ newDir }) => append(newDir, CORE, "- **CORE-10** (MUST) Ten.\n- **CORE-3** (MUST) Three.\n"));
   assert.deepEqual(r.json.requirements.added.map((e) => e.id), ["CORE-3", "CORE-10"]);
 });
+
+const SYNC_YAML = "  - id: SYNC\n    path: modules/sync\n    maturity: sketched\n";
+const CORE_MATURITY = "    maturity: shipped # shipped | partial | sketched | abandoned\n";
+const CORE_SCEN = "modules/core/scenarios.md";
+const PIN = "\n## Pin a note\n\nCovers: CORE-1\nGiven a saved note\nWhen the user pins it\nThen it stays on top\n";
+function addSync(dir) {
+  edit(dir, "unbuilt.yaml", CORE_MATURITY, CORE_MATURITY + SYNC_YAML);
+  writeIn(dir, "modules/sync/problem.md", "# Problem\n\nNotes stay on one device.\n");
+  writeIn(dir, "modules/sync/SPEC.md", "# Sync\n\n- **SYNC-1** (MUST) Notes sync on demand.\n");
+  writeIn(dir, "modules/sync/scenarios.md", "# Scenarios\n\n## Sync now\n\nCovers: SYNC-1\nGiven a note\nWhen the user syncs\nThen it is copied\n");
+}
+
+test("scenarios added, removed and changed (R-DIF-30, R-DIF-31)", (t) => {
+  const r = diffJson(t, ({ newDir }) => {
+    edit(newDir, CORE_SCEN, "## List notes", "## List saved notes");
+    edit(newDir, CORE_SCEN, "types a short note", "types a short line");
+    append(newDir, CORE_SCEN, PIN);
+  });
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.scenarios.added, [{ module: "CORE", title: "List saved notes", cites: ["CORE-2"] }, { module: "CORE", title: "Pin a note", cites: ["CORE-1"] }]);
+  assert.deepEqual(r.json.scenarios.removed, [{ module: "CORE", title: "List notes", cites: ["CORE-2"] }]);
+  assert.deepEqual(r.json.scenarios.changed, [{ module: "CORE", title: "Capture a note", cites: ["CORE-1", "INV-1"] }]);
+});
+
+test("duplicate scenario titles form one key (R-DIF-31)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    const dup = "\n## Capture a note\n\nCovers: CORE-2\nGiven x\n";
+    append(oldDir, CORE_SCEN, dup);
+    append(newDir, CORE_SCEN, dup);
+    edit(newDir, CORE_SCEN, "Given x", "Given y");
+  });
+  assert.deepEqual(r.json.scenarios.changed, [{ module: "CORE", title: "Capture a note", cites: ["CORE-1", "CORE-2", "INV-1"] }]);
+  assert.deepEqual(r.json.scenarios.added, []);
+  assert.deepEqual(r.json.scenarios.removed, []);
+});
+
+test("appending a scenario reports only the added scenario (R-DIF-30, R-DIF-31, plan decision 10)", (t) => {
+  const r = diffJson(t, ({ newDir }) => append(newDir, CORE_SCEN, PIN));
+  assert.deepEqual(r.json.scenarios, { added: [{ module: "CORE", title: "Pin a note", cites: ["CORE-1"] }], removed: [], changed: [] });
+});
+
+test("a heading inside a fence is not a scenario (R-DIF-30)", (t) => {
+  const fence = "`".repeat(3);
+  const r = diffJson(t, ({ newDir }) => append(newDir, CORE_SCEN, `\n${fence}\n## Not a scenario\n${fence}\n`));
+  assert.deepEqual(r.json.scenarios.added, []);
+});
+
+test("module added (R-DIF-34)", (t) => {
+  const r = diffJson(t, ({ newDir }) => addSync(newDir));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.modules.added, [{ id: "SYNC", maturity: "sketched" }]);
+  assert.ok(r.json.requirements.added.map((e) => e.id).includes("SYNC-1"));
+  assert.deepEqual(r.json.scenarios.added, [{ module: "SYNC", title: "Sync now", cites: ["SYNC-1"] }]);
+});
+
+test("module removed (R-DIF-34)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    for (const d of [oldDir, newDir]) {
+      addSync(d);
+      append(d, "BUILD.md", "\n## Milestone 2: Sync\n\nCovers: SYNC-1\nDone when: notes sync.\nEffort: S\n");
+    }
+    for (const rel of ["unbuilt.yaml", "BUILD.md"]) writeIn(newDir, rel, fs.readFileSync(path.join(REPO_ROOT, "template", rel)));
+    fs.rmSync(path.join(newDir, "modules", "sync"), { recursive: true });
+  });
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(r.json.modules.removed, [{ id: "SYNC" }]);
+  assert.deepEqual(r.json.requirements.removed, [{ id: "SYNC-1", old_file: "modules/sync/SPEC.md" }]);
+  assert.deepEqual(r.json.scenarios.removed, [{ module: "SYNC", title: "Sync now", cites: ["SYNC-1"] }]);
+});
+
+test("maturity change (R-DIF-34)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", "maturity: shipped #", "maturity: partial #"));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.modules.maturity, [{ id: "CORE", from: "shipped", to: "partial" }]);
+});
+
+test("module path with a trailing slash (R-DIF-23)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    for (const d of [oldDir, newDir]) edit(d, "unbuilt.yaml", "path: modules/core #", "path: modules/core/ #");
+    edit(newDir, CORE, "**CORE-2** (SHOULD)", "**CORE-2** (MUST)");
+  });
+  assert.deepEqual(r.json.requirements.modality, [{ id: "CORE-2", from: "SHOULD", to: "MUST" }]);
+  reqEmpty(r.json, ["modality"]);
+});
+
+test("a module path never escapes the side (R-DIF-23)", (t) => {
+  const check = (r) => {
+    for (const out of [r.stdout, runDiff([r.oldDir, r.newDir]).stdout]) {
+      for (const s of ["CORE-77", "OUTSIDE-TEXT", "OUTSIDE-TITLE"]) assert.ok(!out.includes(s), s);
+    }
+    assert.deepEqual(r.json.requirements.added.map((e) => e.id), ["CORE-1", "CORE-2"]);
+  };
+  check(diffJson(t, ({ tmp, oldDir }) => {
+    edit(oldDir, "unbuilt.yaml", "path: modules/core #", "path: ../outside #");
+    writeIn(tmp, "outside/SPEC.md", "- **CORE-77** (MUST) OUTSIDE-TEXT.\n");
+    writeIn(tmp, "outside/scenarios.md", "## OUTSIDE-TITLE\n\nCovers: CORE-77\n");
+  }));
+  if (!canSymlink(makeTempDir(t))) return;
+  check(diffJson(t, ({ tmp, oldDir }) => {
+    fs.cpSync(path.join(REPO_ROOT, "template", "modules", "core"), path.join(tmp, "outside2"), { recursive: true });
+    append(path.join(tmp, "outside2"), "SPEC.md", "- **CORE-77** (MUST) OUTSIDE-TEXT.\n");
+    append(path.join(tmp, "outside2"), "scenarios.md", "\n## OUTSIDE-TITLE\n\nCovers: CORE-77\n");
+    fs.rmSync(path.join(oldDir, "modules", "core"), { recursive: true });
+    fs.symlinkSync(path.join(tmp, "outside2"), path.join(oldDir, "modules", "core"));
+  }));
+});
+
+test("malformed module entries are ignored (Review Focus 5)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", CORE_MATURITY, `${CORE_MATURITY}  - id: 7\n    path: modules/core\n    maturity: shipped\n  - id: CORE\n    path: modules/other\n    maturity: sketched\n`));
+  assert.equal(r.code, 0, r.stderr);
+});

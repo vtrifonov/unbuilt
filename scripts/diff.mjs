@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sanitize, InstanceError, scanInstance, readIncludedFile, writeError } from "./snapshot.mjs";
 import { parse } from "./lib/yaml-subset.mjs";
-import { blankCommentsAndFences, findAttempts } from "./lib/markdown.mjs";
+import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
 
 export const USAGE = "usage: node scripts/diff.mjs <old-dir> <new-dir> [--json]\n       node scripts/diff.mjs --help\n";
 
@@ -27,6 +27,14 @@ export function parseArgs(argv) {
 
 const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 
+export function modulePath(raw, dirs) {
+  if (typeof raw !== "string") return null;
+  const p = raw.replace(/\/+$/, "");
+  if (p === "" || p.startsWith("/") || path.isAbsolute(p)) return null;
+  if (p.split("/").some((s) => s === "" || s === "." || s === "..")) return null;
+  return dirs.has(p) ? p : null;
+}
+
 function loadSide(root, side) {
   try {
     const { included, skipped, dirs } = scanInstance(root);
@@ -47,7 +55,7 @@ function loadSide(root, side) {
       for (const item of meta.modules) {
         if (!isObject(item) || typeof item.id !== "string" || seen.has(item.id)) continue;
         seen.add(item.id);
-        modules.push({ id: item.id, path: item.path, rawPath: item.path, maturity: item.maturity });
+        modules.push({ id: item.id, path: modulePath(item.path, dirs), maturity: item.maturity });
       }
     }
     const substitutions = isObject(meta) && Array.isArray(meta.substitutions) ? meta.substitutions.filter((s) => typeof s === "string") : [];
@@ -102,6 +110,55 @@ function compareRequirements(oldDecl, newDecl, out) {
   for (const list of Object.values(out)) list.sort((a, b) => compareIds(a.id, b.id));
 }
 
+const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+
+export function scenarios(side) {
+  const byKey = new Map();
+  const preamble = new Map();
+  for (const m of side.modules) {
+    const file = m.path === null ? null : `${m.path}/scenarios.md`;
+    if (file === null || !side.text.has(file)) continue;
+    const raw = side.text.get(file).split("\n");
+    const blanked = blankCommentsAndFences(side.text.get(file)).split("\n");
+    const sections = findScenarioSections(blanked.join("\n"));
+    preamble.set(file, raw.slice(0, sections.length > 0 ? sections[0].startLine - 1 : raw.length).join("\n"));
+    for (const s of sections) {
+      let lines = raw.slice(s.startLine, s.endLine);
+      while (lines.length > 0 && /^[ \t]*$/.test(lines[lines.length - 1])) lines = lines.slice(0, -1);
+      const cites = findCitations(blanked.slice(s.startLine, s.endLine).join("\n"), side.prefixes).map((c) => c.id);
+      const key = `${m.id}\u0000${s.title}`;
+      const entry = byKey.get(key) ?? { module: m.id, title: s.title, bodies: [], cites: [] };
+      entry.bodies.push(lines.join("\n"));
+      entry.cites = [...new Set([...entry.cites, ...cites])].sort(compareIds);
+      byKey.set(key, entry);
+    }
+  }
+  return { byKey, preamble };
+}
+
+function compareScenarios(oldS, newS, out) {
+  const item = (e) => ({ module: e.module, title: e.title, cites: e.cites });
+  for (const [key, o] of oldS.byKey) {
+    const n = newS.byKey.get(key);
+    if (!n) out.removed.push(item(o));
+    else if (JSON.stringify(o.bodies) !== JSON.stringify(n.bodies)) out.changed.push(item(n));
+  }
+  for (const [key, n] of newS.byKey) if (!oldS.byKey.has(key)) out.added.push(item(n));
+  for (const list of Object.values(out)) list.sort((a, b) => byCodeUnit(a.module, b.module) || byCodeUnit(a.title, b.title));
+}
+
+function compareModules(oldSide, newSide, out) {
+  const oldBy = new Map(oldSide.modules.map((m) => [m.id, m]));
+  const newBy = new Map(newSide.modules.map((m) => [m.id, m]));
+  for (const [id, o] of oldBy) {
+    const n = newBy.get(id);
+    if (!n) out.removed.push({ id });
+    else if (JSON.stringify(o.maturity) !== JSON.stringify(n.maturity)) out.maturity.push({ id, from: o.maturity ?? null, to: n.maturity ?? null });
+  }
+  for (const [id, n] of newBy) if (!oldBy.has(id)) out.added.push({ id, maturity: n.maturity ?? null });
+  for (const list of Object.values(out)) list.sort((a, b) => byCodeUnit(a.id, b.id));
+}
+
 function emptyResult(oldMeta, newMeta) {
   const label = (m) => ({ name: typeof m?.name === "string" ? m.name : null, unbuilt: typeof m?.unbuilt === "number" ? m.unbuilt : null });
   const result = { changed: false, old: label(oldMeta), new: label(newMeta) };
@@ -114,6 +171,8 @@ export function diffInstances(oldDir, newDir) {
   const newSide = loadSide(path.resolve(newDir), "new");
   const result = emptyResult(oldSide.meta, newSide.meta);
   compareRequirements(declarations(oldSide), declarations(newSide), result.requirements);
+  compareScenarios(scenarios(oldSide), scenarios(newSide), result.scenarios);
+  compareModules(oldSide, newSide, result.modules);
   result.changed = Object.keys(LISTS).some((g) => Object.values(result[g]).some((l) => l.length > 0));
   return result;
 }
