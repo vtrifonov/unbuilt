@@ -156,6 +156,17 @@ test("credential names must end in a credential noun; Bearer needs header contex
     A("Bea", "rer authentication-scheme-v2-reference"), A("Bea", "rer ") + "abcdefghijklmnopqrst" + "1"];
   for (const t of negatives) assert.equal(hits(t, "secret").length, 0, t);
 });
+test("credential and Bearer values below the documented length or without a digit are not secrets (CR-COR-23, FORMAT.md section 7)", () => {
+  const negatives = [
+    A("Authorization: Bea", "rer ") + ["abc123", "def456"].join(""),
+    A("Authorization: Bea", "rer ") + "abcdefghijklmnopqrstuvwxyz",
+    A("pass", "word: ") + "correcthorsebattery",
+    A("pass", "word: ") + "abc1234",
+  ];
+  for (const t of negatives) assert.equal(hits(t, "secret").length, 0, t);
+  assert.equal(hits(A("pass", "word: ") + "abc12345", "secret").length, 1, "eight characters with a digit");
+  assert.equal(hits(A("Authorization: Bea", "rer ") + "abcdefghijklmnopqrs1", "secret").length, 1, "20 characters with a digit");
+});
 test("a quoted Bearer value made of hyphenated words is prose; after Authorization: it is still a secret (security recheck 16, amendment 7b)", () => {
   const negatives = [
     "Auth uses `Bearer oauth2-client-credentials` tokens issued by the identity provider.",

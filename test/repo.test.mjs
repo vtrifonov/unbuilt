@@ -76,6 +76,16 @@ test("FORMAT.md names every rule, has the ten sections in order and the version 
   // R-FMT-3 targets 2,500 words; R-FMT-43 (MUST) outranks it, so the limit is 2,600 (controller ruling, wave C).
   assert.ok(countWords(FORMAT) <= 2600, "FORMAT.md over 2,600 words");
 });
+test("FORMAT.md section 7 and the leak-secret row state the credential and Bearer value conditions the validator applies (CR-COR-23)", () => {
+  const s7 = FORMAT.slice(FORMAT.indexOf("\n## 7. "), FORMAT.indexOf("\n## 8. "));
+  const row = fs.readFileSync(path.join(ROOT, "skills/validate/SKILL.md"), "utf8").split("\n").find((l) => l.startsWith("| `leak-secret` |"));
+  for (const [name, text] of [["FORMAT.md", s7], ["leak-secret row", row]]) {
+    assert.match(text, /eight or more characters, holds a digit and is not a placeholder/, name);
+    assert.match(text, /`Bearer` values? of 20 or more characters/, name);
+    assert.match(text, /a digit and a letter in each half/, name);
+  }
+  assert.match(fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8"), /a `Bearer` value needs header context or a digit and a letter in each half/);
+});
 test("FORMAT.md section 7 states how declined names are handled in unbuilt.yaml (R-FMT-43)", () => {
   const s7 = FORMAT.slice(FORMAT.indexOf("\n## 7. "), FORMAT.indexOf("\n## 8. "));
   assert.match(s7, /platform-blind/);
