@@ -103,9 +103,10 @@ function collectLeakHits(texts, images, opts) {
   return hits;
 }
 
-function sectionCitations(prose, section, knownPrefixes) {
-  const lines = prose.split("\n").slice(section.startLine - 1, section.endLine).join("\n");
-  return findCitations(lines, knownPrefixes).map((c) => ({ id: c.id, line: c.line + section.startLine - 1 }));
+// `lines` is the scenarios file split once; each section scans only its own slice.
+function sectionCitations(lines, section, knownPrefixes) {
+  const text = lines.slice(section.startLine - 1, section.endLine).join("\n");
+  return findCitations(text, knownPrefixes).map((c) => ({ id: c.id, line: c.line + section.startLine - 1 }));
 }
 
 export function buildContext(root, today) {
@@ -142,7 +143,8 @@ export function buildContext(root, today) {
   const scenarios = [];
   for (const file of scenarioFiles) {
     const text = prose.get(file);
-    for (const s of findScenarioSections(text)) scenarios.push({ file, title: s.title, startLine: s.startLine, endLine: s.endLine, citations: sectionCitations(text, s, knownPrefixes) });
+    const lines = text.split("\n");
+    for (const s of findScenarioSections(text)) scenarios.push({ file, title: s.title, startLine: s.startLine, endLine: s.endLine, citations: sectionCitations(lines, s, knownPrefixes) });
   }
   const citations = new Map();
   for (const [p, text] of prose) citations.set(p, findCitations(text, knownPrefixes));

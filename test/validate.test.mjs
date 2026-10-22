@@ -480,6 +480,15 @@ test("leak rules filter the hits buildContext scanned once; they never rescan (s
   ctx.leakHits = [];
   assert.deepEqual(runRules(ctx).filter((f) => f.rule.startsWith("leak-")), []);
 });
+test("scenario citations are linear in the number of sections: 20,000 headings build under 2 s (security review finding 3)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  fs.appendFileSync(path.join(dir, "modules/core/scenarios.md"), "\n" + "## s\n".repeat(20000));
+  const t0 = performance.now();
+  const ctx = buildContext(dir, "2026-10-22");
+  const ms = performance.now() - t0;
+  assert.ok(ms < 2000, `${ms.toFixed(0)} ms`);
+  assert.ok(ctx.scenarios.length > 20000);
+});
 test("rule gating on YAML failure keeps the leak rules running (R-VAL-14)", (t) => {
   const { result } = runFixture(t, "yaml-parse", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "\nContact alice@widgets-intranet.com.\n") });
   const rules = new Set([...result.errors, ...result.warnings].map((f) => f.rule));
