@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { sanitize, InstanceError, scanInstance, readIncludedFile } from "./snapshot.mjs";
+import { sanitize, InstanceError, scanInstance, readIncludedFile, writeError } from "./snapshot.mjs";
 import { parse } from "./lib/yaml-subset.mjs";
 import { blankCommentsAndFences, findAttempts } from "./lib/markdown.mjs";
 
@@ -155,8 +155,7 @@ function main() {
     process.stdout.write(args.json ? formatJson(result) : formatHuman(result));
     process.exitCode = result.changed ? 1 : 0;
   } catch (err) {
-    if (err instanceof InstanceError) process.stderr.write(`${err.message}\n`);
-    else process.stderr.write(`internal error: ${err.message}\n${err.stack}\n`);
+    writeError(err);
     process.exitCode = 2;
   }
 }

@@ -166,6 +166,26 @@ test("internal errors exit 2 (R-DIF-4)", (t) => {
   }
 });
 
+test("internal errors are sanitised on every stderr line (R-DIF-4, R-DIF-12)", (t) => {
+  const { tmp, oldDir, newDir } = sides(t);
+  writeIn(tmp, "esc.mjs", 'globalThis.TextDecoder = class { decode() { throw new Error("late\\u001b[31mRED"); } };\n');
+  const r = spawnSync(process.execPath, ["--import", pathToFileURL(path.join(tmp, "esc.mjs")).href, SCRIPT, oldDir, newDir], { encoding: "utf8", timeout: 20000 });
+  assert.equal(r.status, 2, r.stderr);
+  assert.equal(r.stdout, "");
+  assert.ok(r.stderr.startsWith("internal error: late?[31mRED\n"), r.stderr);
+  assert.ok(!r.stderr.includes("\u001b"), r.stderr);
+  assert.ok(r.stderr.split("\n")[1].length > 0);
+});
+
+test("an over-cap file with a control character is named sanitised on stderr (R-DIF-3, R-DIF-12)", (t) => {
+  const { oldDir, newDir } = sides(t);
+  writeIn(newDir, "decisions/big\u001b.md", Buffer.alloc(MAX_TEXT_BYTES + 1, 0x61));
+  const r = runDiff([oldDir, newDir]);
+  assert.equal(r.code, 2);
+  assert.ok(r.stderr.startsWith("new: decisions/big?.md: "), r.stderr);
+  assert.ok(!r.stderr.includes("\u001b"), r.stderr);
+});
+
 const CORE = "modules/core/SPEC.md";
 const CORE2 = "- **CORE-2** (SHOULD) Saved notes are listed newest first.";
 const INV1 = "- **INV-1** (MUST) A note never leaves the machine it was typed on.\n";

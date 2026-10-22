@@ -300,6 +300,41 @@ test("internal error exits 2 with the message and stack (R-SNP-4)", (t) => {
   assert.equal(fs.existsSync(dest), false);
 });
 
+test("a failure after the destination exists removes it and sanitises the internal error (R-SNP-6, R-SNP-7)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  writeIn(tmp, "late.mjs", 'import fs from "node:fs";\nconst orig = fs.writeFileSync;\nlet n = 0;\nfs.writeFileSync = (...a) => { if (++n === 3) throw new Error("late\\u001b[31mRED"); return orig(...a); };\n');
+  const r = spawnSync(process.execPath, ["--import", pathToFileURL(path.join(tmp, "late.mjs")).href, SCRIPT, inst, dest], { encoding: "utf8", timeout: 20000 });
+  assert.equal(r.status, 2, r.stderr);
+  assert.equal(r.stdout, "");
+  assert.ok(r.stderr.startsWith("internal error: late?[31mRED\n"), r.stderr);
+  assert.ok(!r.stderr.includes("\u001b"), r.stderr);
+  assert.ok(r.stderr.split("\n")[2].length > 0);
+  assert.equal(fs.existsSync(dest), false);
+});
+
+test("an over-cap file with a control character is named sanitised on stderr (R-SNP-7)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  writeIn(inst, "decisions/big\u001b.md", Buffer.alloc(MAX_TEXT_BYTES + 1, 0x61));
+  const r = runSnapshot([inst, dest]);
+  assert.equal(r.code, 2);
+  assert.ok(r.stderr.startsWith("decisions/big?.md: "), r.stderr);
+  assert.ok(!r.stderr.includes("\u001b"), r.stderr);
+});
+
+test("refuses a destination inside the instance spelled in another letter case (R-SNP-5, R-SNP-6)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  if (!fs.existsSync(path.join(tmp, "INST"))) { t.skip("the temp file system is case-sensitive"); return; }
+  const before = tree(inst);
+  const r = runSnapshot([inst, path.join(tmp, "INST", "snap")]);
+  assert.equal(r.code, 2);
+  assert.equal(r.stdout, "");
+  assert.ok(r.stderr.startsWith("destination is inside the instance: "), r.stderr);
+  assert.deepEqual(tree(inst), before);
+  assert.equal(fs.existsSync(path.join(inst, "snap")), false);
+});
+
 test("snapshot of a snapshot is identical (R-SNP-6)", (t) => {
   const { tmp, inst } = makeInst(t);
   const a = path.join(tmp, "a");

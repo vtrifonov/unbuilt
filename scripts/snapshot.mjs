@@ -17,6 +17,11 @@ export function sanitize(text) {
   return String(text).replace(UNSAFE_RE, "?");
 }
 
+export function writeError(err) {
+  const text = err instanceof InstanceError ? err.message : `internal error: ${err?.message}\n${err?.stack}`;
+  process.stderr.write(String(text).split("\n").map(sanitize).join("\n") + "\n");
+}
+
 export class InstanceError extends Error {
   constructor(message) {
     super(message);
@@ -114,9 +119,13 @@ export function snapshotInstance(instanceDir, destDir) {
   const lstatOrNull = (p) => { try { return fs.lstatSync(p); } catch { return null; } };
   if (lstatOrNull(dest)) throw destFail("destination exists");
   if (!lstatOrNull(path.dirname(dest))?.isDirectory()) throw destFail("destination parent is missing or not a real directory");
-  const realParent = fs.realpathSync(path.dirname(dest));
-  const realRoot = fs.realpathSync(root);
-  if (realParent === realRoot || realParent.startsWith(realRoot + path.sep)) throw destFail("destination is inside the instance");
+  // Compare identities, not path strings: a case-insensitive file system accepts any letter case.
+  const rootId = fs.statSync(root, { bigint: true });
+  for (let p = fs.realpathSync(path.dirname(dest)); ; p = path.dirname(p)) {
+    const st = fs.statSync(p, { bigint: true });
+    if (st.dev === rootId.dev && st.ino === rootId.ino) throw destFail("destination is inside the instance");
+    if (path.dirname(p) === p) break;
+  }
   const { included, excluded, skipped } = scanInstance(root);
   fs.mkdirSync(dest);
   try {
@@ -157,8 +166,7 @@ function main() {
     process.stdout.write(lines.join("\n") + "\n");
     process.exitCode = r.excluded.length || r.skipped.length ? 1 : 0;
   } catch (err) {
-    if (err instanceof InstanceError) process.stderr.write(`${err.message}\n`);
-    else process.stderr.write(`internal error: ${err.message}\n${err.stack}\n`);
+    writeError(err);
     process.exitCode = 2;
   }
 }
