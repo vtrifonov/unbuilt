@@ -1,0 +1,15 @@
+unbuilt: 1
+name: minimal-valid
+origin: extracted-from-private-implementation
+reference_impl: private
+license: MIT
+has_ui: true
+platforms:
+  - desktop
+interview: author
+modules:
+  - id: CORE
+    path: modules/core
+    maturity: shipped
+substitutions:
+  - storage

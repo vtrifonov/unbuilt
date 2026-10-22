@@ -1,0 +1,16 @@
+unbuilt: 1
+name: minimal-valid
+summary: A fictional note-keeping tool used to exercise the validator.
+origin: extracted-from-private-implementation
+reference_impl: private
+license: MIT
+has_ui: true
+platforms:
+  - desktop
+interview: author
+modules:
+  - id: CORE
+    path: modules/core
+    maturity: done
+substitutions:
+  - storage

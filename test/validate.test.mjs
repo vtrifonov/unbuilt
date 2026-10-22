@@ -238,3 +238,59 @@ test("rule gating on YAML failure: no needsMeta rule fires (R-VAL-14)", (t) => {
   assert.ok(gated.includes("module-files"));
   for (const name of gated) assert.ok(!fired.has(name), `${name} ran although unbuilt.yaml failed to parse`);
 });
+
+test("yaml-fields warns on unknown keys and masks values (R-YML-4, R-VAL-8)", (t) => {
+  const a = runFixture(t, "yaml-fields", { mutate: (d) => fs.appendFileSync(path.join(d, "unbuilt.yaml"), "colour: red\n") });
+  assert.ok(has(a.result, "yaml-fields", "warning", "unbuilt.yaml"));
+  assert.ok(a.result.warnings.some((f) => f.message === "unknown key colour is ignored (FORMAT.md §3)"));
+  const b = runFixture(t, "yaml-fields", { mutate: (d) => writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("name: minimal-valid", "name: alice@widgets-intranet.com")) });
+  const msgs = b.result.errors.filter((f) => f.rule === "yaml-fields").map((f) => f.message);
+  assert.ok(msgs.length > 0 && msgs.every((m) => !m.includes("alice@widgets-intranet.com")));
+});
+test("quoted unbuilt version is a yaml-fields error, not the version short-circuit (spec 13)", (t) => {
+  const { result } = runFixture(t, "yaml-fields", { mutate: (d) => writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("unbuilt: 1", 'unbuilt: "1"')) });
+  assert.ok(result.errors.some((f) => f.rule === "yaml-fields" && f.message.includes("integer 1")));
+});
+test("reference_impl must agree with origin (R-YML-3)", (t) => {
+  const { result } = runFixture(t, "yaml-fields", { mutate: (d) => writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("origin: extracted-from-private-implementation", "origin: designed-not-built")) });
+  assert.ok(result.errors.some((f) => f.rule === "yaml-fields" && f.message.includes("literal none")));
+});
+test("module-paths: undeclared directory is a warning; trailing slash accepted (R-YML-6, R-YML-7)", (t) => {
+  const a = runFixture(t, "module-paths", { mutate: (d) => fs.mkdirSync(path.join(d, "modules/extra")) });
+  assert.ok(has(a.result, "module-paths", "warning", "modules/extra"));
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, "unbuilt.yaml", readIn(dir, "unbuilt.yaml").replace("path: modules/core", "path: modules/core/"));
+  const b = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.deepEqual(b.result.errors, []);
+});
+// Mutates minimal-valid's unbuilt.yaml (clean baseline, no fixture overlay) and runs the CLI.
+const mutYaml = (t, fn) => { const d = makeTempDir(t); copyMinimalValid(d); writeIn(d, "unbuilt.yaml", fn(readIn(d, "unbuilt.yaml"))); return runJson([d, "--json", "--today", "2026-10-22"]).result; };
+const SECOND_MODULE = (p) => `  - id: PICK\n    path: ${p}\n    maturity: shipped\n`;
+test("yaml-enums, module-ids and module-paths branches (R-YML-2, R-YML-5, R-YML-6, R-YML-15)", (t) => {
+  const cases = [
+    ["id fails ^[A-Z]{2,8}$", "module-ids", (y) => y.replace("id: CORE", "id: C0RE")],
+    ["id is INV", "module-ids", (y) => y.replace("id: CORE", "id: INV")],
+    ["path not under modules/", "module-paths", (y) => y.replace("path: modules/core", "path: core")],
+    ["path contains ..", "module-paths", (y) => y.replace("path: modules/core", "path: modules/../modules/core")],
+    ["two modules share a path", "module-paths", (y) => y.replace("substitutions:", SECOND_MODULE("modules/core") + "substitutions:")],
+    ["modules/core and modules/core/ collide", "module-paths", (y) => y.replace("substitutions:", SECOND_MODULE("modules/core/") + "substitutions:")],
+    ["public_hosts entry listed twice", "yaml-fields", (y) => y + "public_hosts:\n  - docs.example-public.org\n  - docs.example-public.org\n"],
+    ["origin enum", "yaml-enums", (y) => y.replace("origin: extracted-from-private-implementation", "origin: found-on-a-disk")],
+    ["original_effort enum", "yaml-enums", (y) => y + "original_effort: XXL\n"],
+    ["interview enum", "yaml-enums", (y) => y.replace("interview: author", "interview: nobody")],
+  ];
+  for (const [name, rule, fn] of cases) {
+    const result = mutYaml(t, fn);
+    assert.ok(has(result, rule, "error", "unbuilt.yaml"), `${name}: ${JSON.stringify(result.errors)}`);
+  }
+  const twice = mutYaml(t, (y) => y + "public_hosts:\n  - docs.example-public.org\n  - docs.example-public.org\n");
+  assert.ok(twice.errors.some((f) => f.rule === "yaml-fields" && f.message.includes("is listed twice")));
+});
+test("duplicate module path is reported once, at the second module (R-YML-6, spec 13)", (t) => {
+  for (const p of ["modules/core", "modules/core/"]) {
+    const result = mutYaml(t, (y) => y.replace("substitutions:", SECOND_MODULE(p) + "substitutions:"));
+    const dup = result.errors.filter((f) => f.rule === "module-paths" && f.message.includes("is used by two modules"));
+    assert.equal(dup.length, 1, p);
+    assert.ok(!result.errors.some((f) => f.rule === "module-paths" && f.message.includes("is not a directory")), p);
+  }
+});
