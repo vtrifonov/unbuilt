@@ -15,12 +15,12 @@ export function finding(level, rule, file, line, message) {
 const REQUIRED_FILES = ["README.md", "unbuilt.yaml", "SPEC.md", "constraints.md", "BUILD.md"];
 const MODULE_FILES = ["problem.md", "SPEC.md", "scenarios.md"];
 
-function requiredFiles(ctx) {
+export function requiredFiles(ctx) {
   return REQUIRED_FILES.filter((name) => !ctx.files.has(name))
     .map((name) => finding("error", "required-files", name, null, `required file ${name} is missing (FORMAT.md §3)`));
 }
 
-function moduleFiles(ctx) {
+export function moduleFiles(ctx) {
   const out = [];
   const seen = new Set();
   for (const m of ctx.modules) {
@@ -33,7 +33,7 @@ function moduleFiles(ctx) {
   return out;
 }
 
-function yamlParse(ctx) {
+export function yamlParse(ctx) {
   if (!ctx.yaml) return [];
   return ctx.yaml.errors.map((e) => finding("error", "yaml-parse", "unbuilt.yaml", e.line, `${e.message.replace(/^line \d+: /, "")} (FORMAT.md §10)`));
 }
@@ -56,7 +56,7 @@ function isIpLiteral(s) {
   return IPV6_RE.test(s) && (s.match(/::/g) ?? []).length <= 1 && !s.includes(":::");
 }
 
-function yamlFields(ctx) {
+export function yamlFields(ctx) {
   const out = [];
   const meta = ctx.meta;
   const L = (key) => ctx.yaml.lines.get(key);
@@ -118,7 +118,7 @@ function yamlFields(ctx) {
   return out;
 }
 
-function yamlEnums(ctx) {
+export function yamlEnums(ctx) {
   const out = [];
   const meta = ctx.meta;
   const L = (key) => ctx.yaml.lines.get(key);
@@ -134,7 +134,7 @@ function yamlEnums(ctx) {
   return out;
 }
 
-function moduleIds(ctx) {
+export function moduleIds(ctx) {
   const out = [];
   const seen = new Set();
   for (const m of ctx.modules) {
@@ -149,7 +149,7 @@ function moduleIds(ctx) {
   return out;
 }
 
-function modulePaths(ctx) {
+export function modulePaths(ctx) {
   const out = [];
   const seen = new Set();
   for (const m of ctx.modules) {
@@ -173,7 +173,7 @@ const attemptId = (a) => {
   return m ? `${m[1]}-${m[2]}` : `${a.prefix}-${a.num}`;
 };
 
-function idFormat(ctx) {
+export function idFormat(ctx) {
   const out = [];
   for (const a of ctx.attempts) {
     if (a.retiredShaped && !a.exact?.retired) continue;
@@ -190,7 +190,7 @@ function idFormat(ctx) {
   return out;
 }
 
-function idUnique(ctx) {
+export function idUnique(ctx) {
   const out = [];
   const first = new Map();
   for (const d of ctx.declarations) {
@@ -201,7 +201,7 @@ function idUnique(ctx) {
   return out;
 }
 
-function idRetiredForm(ctx) {
+export function idRetiredForm(ctx) {
   const out = [];
   for (const a of ctx.attempts) {
     if (a.retiredShaped && !a.exact?.retired) {
@@ -221,7 +221,7 @@ function idRetiredForm(ctx) {
   return out;
 }
 
-function scenarioCitesId(ctx) {
+export function scenarioCitesId(ctx) {
   const out = [];
   const declared = new Set(ctx.declarations.map((d) => d.id));
   const live = new Set(ctx.declarations.filter((d) => !d.retired).map((d) => d.id));
@@ -244,8 +244,8 @@ function coverage(ctx, modality, level, rule) {
     .map((d) => finding(level, rule, d.file, d.line, `${d.id} is a ${modality} but no scenario cites it (FORMAT.md §5)`));
 }
 
-const mustHasScenario = (ctx) => coverage(ctx, "MUST", "error", "must-has-scenario");
-const shouldHasScenario = (ctx) => coverage(ctx, "SHOULD", "warning", "should-has-scenario");
+export const mustHasScenario = (ctx) => coverage(ctx, "MUST", "error", "must-has-scenario");
+export const shouldHasScenario = (ctx) => coverage(ctx, "SHOULD", "warning", "should-has-scenario");
 
 const KEBAB_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const SUBSTITUTIONS_README = "substitutions/README.md";
@@ -255,7 +255,7 @@ function substitutionNames(ctx) {
   return Array.isArray(subs) && subs.every(isStr) ? subs : null;
 }
 
-function substitutionFiles(ctx) {
+export function substitutionFiles(ctx) {
   const out = [];
   const subs = substitutionNames(ctx) ?? [];
   const L = (i) => ctx.yaml.lines.get(`substitutions[${i}]`);
@@ -302,7 +302,7 @@ function findModuleTable(lines) {
   return null;
 }
 
-function substitutionMatrix(ctx) {
+export function substitutionMatrix(ctx) {
   const subs = substitutionNames(ctx);
   if (subs === null || subs.length === 0 || !ctx.prose.has(SUBSTITUTIONS_README)) return [];
   const out = [];
@@ -336,7 +336,7 @@ function substitutionMatrix(ctx) {
 
 const EVIDENCE_NAME_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9]+(-[a-z0-9]+)*\.md$/;
 
-function evidenceDates(ctx) {
+export function evidenceDates(ctx) {
   const out = [];
   for (const p of [...ctx.files.keys()].sort()) {
     const m = /^evidence\/([^/]+\.md)$/.exec(p);
@@ -376,12 +376,12 @@ function evidenceDates(ctx) {
   return out;
 }
 
-function redactionRequired(ctx) {
+export function redactionRequired(ctx) {
   if (ctx.meta.origin !== ORIGINS[1] || ctx.files.has("redaction.md")) return [];
   return [finding("error", "redaction-required", "redaction.md", null, "redaction.md is required when origin is extracted-from-private-implementation (FORMAT.md §3)")];
 }
 
-function designRequired(ctx) {
+export function designRequired(ctx) {
   if (ctx.meta.has_ui !== true || ctx.files.has("design/README.md")) return [];
   return [finding("error", "design-required", "design/README.md", null, "design/README.md is required when has_ui is true (FORMAT.md §3)")];
 }
@@ -407,14 +407,14 @@ const leakRule = (rule, patterns, describe) => (ctx) =>
   scanInstance(ctx, patterns).map((h) => finding("error", rule, h.file, h.line, describe(maskMatch(h.match), h)));
 
 const IP_TAIL = "replace it with a role word or, if public, add it to public_hosts (FORMAT.md §7)";
-const leakEmail = leakRule("leak-email", ["email"], (m) => `email address ${m} found; replace it with a role word (FORMAT.md §7)`);
-const leakIpv4 = leakRule("leak-ipv4", ["ipv4", "ipv6"], (m, h) => {
+export const leakEmail = leakRule("leak-email", ["email"], (m) => `email address ${m} found; replace it with a role word (FORMAT.md §7)`);
+export const leakIpv4 = leakRule("leak-ipv4", ["ipv4", "ipv6"], (m, h) => {
   if (h.kind === "mac") return `MAC address ${m} found; replace it with a role word (FORMAT.md §7)`;
   return `${h.pattern === "ipv4" ? "IPv4" : "IPv6"} address ${m} found; ${IP_TAIL}`;
 });
-const leakHostname = leakRule("leak-hostname", ["hostname"], (m) => `hostname ${m} found; ${IP_TAIL}`);
-const leakHomePath = leakRule("leak-home-path", ["home-path"], (m) => `home path ${m} found; replace it with a role word (FORMAT.md §7)`);
-const leakSecret = leakRule("leak-secret", ["secret"], (m) => `secret-shaped value ${m} found; remove it (FORMAT.md §7)`);
+export const leakHostname = leakRule("leak-hostname", ["hostname"], (m) => `hostname ${m} found; ${IP_TAIL}`);
+export const leakHomePath = leakRule("leak-home-path", ["home-path"], (m) => `home path ${m} found; replace it with a role word (FORMAT.md §7)`);
+export const leakSecret = leakRule("leak-secret", ["secret"], (m) => `secret-shaped value ${m} found; remove it (FORMAT.md §7)`);
 
 const MAX_MD_LINES = 1500;
 const MAX_MD_WORDS = 60000;
@@ -424,7 +424,7 @@ const ALLOWED_IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "svg"];
 const REJECTED_IMAGE_EXTS = ["gif", "bmp", "tif", "tiff", "heic", "ico", "avif"];
 const IMAGE_EXTS = [...ALLOWED_IMAGE_EXTS, ...REJECTED_IMAGE_EXTS];
 
-function budgetFileLines(ctx) {
+export function budgetFileLines(ctx) {
   const out = [];
   for (const e of ctx.entries) {
     if (e.kind !== "file") continue;
@@ -439,14 +439,14 @@ function budgetFileLines(ctx) {
   return out;
 }
 
-function budgetTotalWords(ctx) {
+export function budgetTotalWords(ctx) {
   let n = 0;
   for (const [p, text] of ctx.texts) if (ctx.files.get(p)?.ext === "md") n += countWords(text);
   if (n <= MAX_MD_WORDS) return [];
   return [finding("error", "budget-total-words", ".", null, `instance has ${n} words of Markdown; the limit is ${MAX_MD_WORDS} (FORMAT.md §8)`)];
 }
 
-function budgetImage(ctx) {
+export function budgetImage(ctx) {
   const out = [];
   for (const e of ctx.entries) {
     if (e.kind !== "file" || !IMAGE_EXTS.includes(e.ext)) continue;
@@ -456,7 +456,7 @@ function budgetImage(ctx) {
   return out;
 }
 
-function budgetModuleCount(ctx) {
+export function budgetModuleCount(ctx) {
   const n = ctx.modules.length;
   if (n <= MAX_MODULES) return [];
   return [finding("error", "budget-module-count", ".", null, `${n} modules are declared; the limit is ${MAX_MODULES} (FORMAT.md §8)`)];
@@ -465,7 +465,7 @@ function budgetModuleCount(ctx) {
 const SPECIAL_KINDS = { symlink: "symbolic link", fifo: "FIFO", socket: "socket", device: "device" };
 const FORMAT_OF_EXT = { png: "png", jpg: "jpeg", jpeg: "jpeg", webp: "webp" };
 
-function fileTypes(ctx) {
+export function fileTypes(ctx) {
   const out = [];
   const err = (p, msg) => out.push(finding("error", "file-types", p, null, `${msg} (FORMAT.md §7)`));
   for (const e of ctx.entries) {
@@ -478,7 +478,8 @@ function fileTypes(ctx) {
       continue;
     }
     if (e.kind !== "file") continue;
-    if (!e.isText && !IMAGE_EXTS.includes(e.ext)) {
+    // An .svg is scanned as text, so a non-text .svg cannot be scanned (spec amendment 5).
+    if (!e.isText && (!IMAGE_EXTS.includes(e.ext) || e.ext === "svg")) {
       err(e.path, `${e.path} is not a text file or an allowed image`);
       continue;
     }

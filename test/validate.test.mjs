@@ -491,10 +491,35 @@ test("budget edge cases (rules 24–26, R-VAL-33, R-VAL-42)", (t) => {
   const gif = runFixture(t, "budget-image", { mutate: (d) => fs.writeFileSync(path.join(d, "design/screen.gif"), "GIF89a") });
   assert.ok(has(gif.result, "budget-image", "error", "design/screen.gif"));
   assert.ok(!gif.result.errors.some((f) => f.rule === "file-types" && f.file === "design/screen.gif"));
-  const big = runFixture(t, "budget-file-lines", { mutate: (d) => fs.writeFileSync(path.join(d, "big.md"), Buffer.alloc(5 * 1024 * 1024 + 1, 0x61)) });
+  const big = runFixture(t, "budget-file-lines", { mutate: (d) => { fs.writeFileSync(path.join(d, "big.md"), Buffer.alloc(5 * 1024 * 1024 + 1, 0x61)); fs.writeFileSync(path.join(d, "notes.txt"), Buffer.alloc(5 * 1024 * 1024 + 1, 0x61)); } });
   assert.ok(big.result.errors.some((f) => f.rule === "budget-file-lines" && f.file === "big.md" && f.message.includes("too large to scan")));
+  assert.ok(big.result.errors.some((f) => f.rule === "budget-file-lines" && f.file === "notes.txt" && f.message.includes("too large to scan")));
   const ok = runFixture(t, "budget-file-lines", { mutate: (d) => fs.writeFileSync(path.join(d, "notes.md"), "w\n".repeat(1500)) });
   assert.ok(!ok.result.errors.some((f) => f.rule === "budget-file-lines"));
+});
+
+test("budgets accept exactly the limit (R-FMT-37: at most N)", (t) => {
+  const twelve = runFixture(t, "budget-module-count", { mutate: (d) => {
+    writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("  - id: AL\n    path: modules/al\n    maturity: shipped\n", ""));
+    fs.rmSync(path.join(d, "modules/al"), { recursive: true, force: true });
+    writeIn(d, "substitutions/README.md", readIn(d, "substitutions/README.md").replace("| AL | - |\n", ""));
+  } });
+  assert.deepEqual([...twelve.result.errors, ...twelve.result.warnings], []);
+  const png = runFixture(t, "budget-image", { mutate: (d) => fs.writeFileSync(path.join(d, "design/big.png"), makePng({ totalBytes: 2097152 })) });
+  assert.equal(fs.statSync(path.join(png.dir, "design/big.png")).size, 2097152);
+  assert.ok(!png.result.errors.some((f) => f.rule === "budget-image"));
+  const wordsTo = (total) => (d) => {
+    fs.rmSync(path.join(d, "notes.md"), { force: true });
+    let base = 0;
+    for (const rel of fs.readdirSync(d, { recursive: true })) if (rel.endsWith(".md")) base += countWords(readIn(d, rel));
+    const rows = [];
+    for (let left = total - base; left > 0; left -= 200) rows.push(Array(Math.min(200, left)).fill("w").join(" "));
+    writeIn(d, "notes.md", rows.join("\n") + "\n");
+  };
+  const at = runFixture(t, "budget-total-words", { mutate: wordsTo(60000) });
+  assert.ok(!at.result.errors.some((f) => f.rule === "budget-total-words"));
+  const over = runFixture(t, "budget-total-words", { mutate: wordsTo(60001) });
+  assert.ok(over.result.errors.some((f) => f.rule === "budget-total-words" && f.message.includes("60001 words")));
 });
 
 test("each generated budget fixture fires only its own rule (plan decision 9)", (t) => {
@@ -511,7 +536,8 @@ const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
 const ft = (r, file) => r.errors.filter((f) => f.rule === "file-types" && f.file === file);
 // Probe once: can this platform create a symlink? (R-TST-11: skip with a reason, never pass silently)
 const canSymlink = (() => {
-  try { const d = fs.mkdtempSync(path.join(os.tmpdir(), "unbuilt-probe-")); fs.writeFileSync(path.join(d, "a"), "x"); fs.symlinkSync("a", path.join(d, "b")); fs.rmSync(d, { recursive: true, force: true }); return true; } catch { return false; }
+  let d = null;
+  try { d = fs.mkdtempSync(path.join(os.tmpdir(), "unbuilt-probe-")); fs.writeFileSync(path.join(d, "a"), "x"); fs.symlinkSync("a", path.join(d, "b")); return true; } catch { return false; } finally { if (d) fs.rmSync(d, { recursive: true, force: true }); }
 })();
 test("file-types: symlinked required file is both missing and a file-types finding (R-VAL-42, spec 12.1)", { skip: canSymlink ? false : "platform refuses symlinkSync" }, (t) => {
   const link = runFixture(t, "file-types", { mutate: (d) => { fs.rmSync(path.join(d, "constraints.md")); fs.symlinkSync("README.md", path.join(d, "constraints.md")); } });
@@ -533,6 +559,11 @@ test("file-types sub-cases (R-VAL-42, R-VAL-43)", (t) => {
   const bad = runFixture(t, "file-types", { mutate: (d) => fs.writeFileSync(path.join(d, "design/bad.jpg"), makeJpeg({ raw: Buffer.from([0xff, 0xe1, 0xff, 0xff, 0x41]) })) });
   assert.equal(bad.code, 1);
   assert.equal(ft(bad.result, "design/bad.jpg").length, 1); assert.match(ft(bad.result, "design/bad.jpg")[0].message, /malformed JPEG segment/);
+  // An .svg is an allowed image only when it is text (spec amendment 5): a UTF-16 SVG cannot be scanned for leaks.
+  const svg16 = runFixture(t, "file-types", { mutate: (d) => fs.writeFileSync(path.join(d, "design/x.svg"), Buffer.from("<svg>/Users/alice/x</svg>", "utf16le")) });
+  assert.equal(ft(svg16.result, "design/x.svg").length, 1); assert.match(ft(svg16.result, "design/x.svg")[0].message, /not a text file or an allowed image \(FORMAT\.md §7\)$/);
+  const svg8 = runFixture(t, "file-types", { mutate: (d) => fs.writeFileSync(path.join(d, "design/ok.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>\n') });
+  assert.equal(ft(svg8.result, "design/ok.svg").length, 0);
 });
 test("file-types FIFO", { skip: isWin ? "no FIFOs on Windows" : false }, (t) => {
   const r = runFixture(t, "file-types", { mutate: (d) => execFileSync("mkfifo", [path.join(d, "pipe")]) });
@@ -543,10 +574,15 @@ test("file-types unreadable file", { skip: isWin ? "no POSIX modes on Windows" :
   assert.ok(r.result.errors.some((f) => f.rule === "file-types" && f.file === "secret.md" && f.message.includes("cannot be read")));
 });
 
+import * as rulesModule from "../scripts/lib/rules.mjs";
 const RULE_NAMES = ["required-files", "module-files", "yaml-parse", "yaml-fields", "yaml-enums", "module-ids", "module-paths", "id-format", "id-unique", "id-retired-form", "scenario-cites-id", "must-has-scenario", "should-has-scenario", "substitution-files", "substitution-matrix", "evidence-dates", "redaction-required", "design-required", "leak-email", "leak-ipv4", "leak-hostname", "leak-home-path", "leak-secret", "budget-file-lines", "budget-total-words", "budget-image", "budget-module-count", "file-types"];
 test("RULES names and order (R-VAL-20)", () => {
   assert.deepEqual(RULES.map((r) => r.name), RULE_NAMES);
   for (const r of RULES) assert.equal(typeof r.fn, "function");
+});
+test("rules.mjs exports one camelCase function per rule, the same one RULES holds (R-VAL-9)", () => {
+  const camel = (s) => s.replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase());
+  for (const r of RULES) assert.equal(rulesModule[camel(r.name)], r.fn, `${camel(r.name)} is not exported as RULES' ${r.name} function`);
 });
 test("every rule has a fixture directory and nothing else is there (R-TST-8)", () => {
   assert.deepEqual(fs.readdirSync(FIXTURES).filter((n) => n !== "minimal-valid").sort(), [...RULE_NAMES].sort());
@@ -584,15 +620,27 @@ test("warnings-only run prints counts, not ok (R-VAL-5)", (t) => {
   assert.equal(h.code, 0); assert.match(h.stdout, /\n0 error\(s\), 1 warning\(s\)\n$/);
 });
 test("a finding without a line sorts before line findings in the same file (Review Focus 5)", (t) => {
-  // notes.md: 1,501 lines (budget-file-lines, no line) and an email on line 1 (leak-email, line 1).
+  // notes.md: 1,502 lines (budget-file-lines, no line), a home path on line 1 and an email on line 2.
+  // Line order (home path, then email) disagrees with rule-name order, so only a line sort passes.
   const dir = makeTempDir(t); copyMinimalValid(dir);
-  writeIn(dir, "notes.md", "Contact alice@widgets-intranet.com.\n" + "w\n".repeat(1500));
+  writeIn(dir, "notes.md", "Path /Users/alice/x here.\nContact alice@widgets-intranet.com.\n" + "w\n".repeat(1500));
   const { result } = runJson([dir, "--json", "--today", "2026-10-22"]);
   const notes = result.errors.filter((f) => f.file === "notes.md");
-  assert.deepEqual(notes.map((f) => [f.rule, f.line]), [["budget-file-lines", undefined], ["leak-email", 1]]);
+  assert.deepEqual(notes.map((f) => [f.rule, f.line]), [["budget-file-lines", undefined], ["leak-home-path", 1], ["leak-email", 2]]);
   assert.equal("line" in notes[0], false);
   const h = runCli([dir, "--today", "2026-10-22"]);
   const lines = h.stdout.split("\n").filter((l) => l.includes("notes.md"));
   assert.match(lines[0], /^error    budget-file-lines  notes.md  /);
-  assert.match(lines[1], /^error    leak-email         notes.md:1  /);
+  assert.match(lines[1], /^error    leak-home-path     notes.md:1  /);
+  assert.match(lines[2], /^error    leak-email         notes.md:2  /);
+});
+test("findings on the same file and line sort by rule name (R-VAL-6)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  // Rule order and message order agree here (leak-email / "email…" before leak-home-path / "home…").
+  writeIn(dir, "same.md", "Ask alice@widgets-intranet.com about /Users/alice/x today.\n");
+  // Rule order (leak-hostname, leak-ipv4) disagrees with both message order ("IPv4…" < "hostname…") and RULES order (ipv4 first).
+  writeIn(dir, "pair.md", "Reach 10.20.30.40 or build01.widgets-intranet.com today.\n");
+  const { result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.deepEqual(result.errors.filter((f) => f.file === "same.md").map((f) => [f.rule, f.line]), [["leak-email", 1], ["leak-home-path", 1]]);
+  assert.deepEqual(result.errors.filter((f) => f.file === "pair.md").map((f) => [f.rule, f.line]), [["leak-hostname", 1], ["leak-ipv4", 1]]);
 });

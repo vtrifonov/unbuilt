@@ -58,7 +58,7 @@ Severity is the default. A rule that emits both levels lists both.
 | `budget-total-words` | Total Markdown is at most 60,000 words. | error |
 | `budget-image` | Each image is at most 2 MB and of type png, jpg, jpeg, webp or svg. | error |
 | `budget-module-count` | At most 12 modules are declared. | error |
-| `file-types` | Every entry is a regular, readable text file or an allowed image that parses; no `node_modules/`. | error |
+| `file-types` | Every entry is a regular, readable text file or an allowed image that parses; an `.svg` must be a text file; no `node_modules/`. | error |
 
 ## What is not checked
 

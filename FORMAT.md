@@ -141,7 +141,7 @@ Company and product names are removed by default; the author opts in per name at
 - A URL's host is checked whatever its TLD, so a URL naming a bare internal host and a port is a finding.
 - A web route whose path starts with a `home` segment followed by a page name is a true positive for `leak-home-path`. Reword it, for example as "the settings route".
 
-**File types.** Every file is a regular file, either text or an image of an allowed type (section 8). Symbolic links, other binaries, unreadable files and `node_modules/` are not allowed, because the validator cannot scan them (`file-types`).
+**File types.** Every file is a regular file, either text or an image of an allowed type (section 8); an `.svg` must be a text file. Symbolic links, other binaries, unreadable files and `node_modules/` are not allowed, because the validator cannot scan them (`file-types`).
 
 ## 8. Size budgets
 
