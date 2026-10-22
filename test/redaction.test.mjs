@@ -180,6 +180,28 @@ test("a token in url userinfo yields one secret finding", () => {
   assert.equal(hits(t, "secret").length, 1);
   assert.ok(!maskText(t).includes(value));
 });
+test("leak scanning is linear: a 1 MB single-token run of each hot class scans under 2 s (security review finding 1)", () => {
+  const n = 1048576;
+  const run = (unit, tail = "") => unit.repeat(Math.ceil(n / unit.length)).slice(0, n) + tail;
+  const cases = {
+    "email local part": run("a"),
+    "dotted run": run("a.", "!"),
+    "email domain": "x@" + run("a-"),
+    "url scheme plus": run("a+"),
+    "url scheme dotted": run("a.", "x"),
+    "ipv6 colons": run(":", "g"),
+    "ipv6 hex colon": run("a:", "g"),
+    "ipv6 digit colon": run("1:", ".x"),
+    "jwt body": "eyJ" + run("a", "."),
+    "base64-ish": run("QUJD+/09"),
+  };
+  for (const [name, text] of Object.entries(cases)) {
+    const t0 = performance.now();
+    scanText(text);
+    const ms = performance.now() - t0;
+    assert.ok(ms < 2000, `${name}: ${ms.toFixed(0)} ms`);
+  }
+});
 test("isHostAllowed normalises and unions with defaults", () => {
   assert.equal(isHostAllowed("github.com", { allowHosts: ["acme.com"], exactHosts: [] }), true);
   assert.equal(isHostAllowed("vpn.acme.com", { allowHosts: ["ACME.com"], exactHosts: [] }), true);

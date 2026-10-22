@@ -471,6 +471,15 @@ test("walk and parse interplay for leaks (R-VAL-12, R-VAL-16, R-VAL-28)", (t) =>
   const dbl = runFixture(t, "leak-email", { mutate: (d) => writeIn(d, "README.md", "# minimal-valid\n\nalice@build01.widgets-intranet.com\nhttps://build01.widgets-intranet.com/x\n") });
   assert.deepEqual(leakRules(dbl.result).map((f) => f.rule), ["leak-email", "leak-hostname"]);
 });
+test("leak rules filter the hits buildContext scanned once; they never rescan (security review finding 1)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, "notes.md", "Ask alice@widgets-intranet.com about 10.20.30.40 today.\n");
+  const ctx = buildContext(dir, "2026-10-22");
+  assert.deepEqual(ctx.leakHits.map((h) => [h.file, h.line, h.pattern]), [["notes.md", 1, "email"], ["notes.md", 1, "ipv4"]]);
+  assert.deepEqual(runRules(ctx).filter((f) => f.rule.startsWith("leak-")).map((f) => f.rule).sort(), ["leak-email", "leak-ipv4"]);
+  ctx.leakHits = [];
+  assert.deepEqual(runRules(ctx).filter((f) => f.rule.startsWith("leak-")), []);
+});
 test("rule gating on YAML failure keeps the leak rules running (R-VAL-14)", (t) => {
   const { result } = runFixture(t, "yaml-parse", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "\nContact alice@widgets-intranet.com.\n") });
   const rules = new Set([...result.errors, ...result.warnings].map((f) => f.rule));

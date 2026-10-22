@@ -1,4 +1,4 @@
-import { maskMatch, scanText } from "./redaction.mjs";
+import { maskMatch } from "./redaction.mjs";
 import { countLines, countWords } from "./markdown.mjs";
 
 export const SUPPORTED_FORMAT_VERSION = 1;
@@ -386,21 +386,9 @@ export function designRequired(ctx) {
   return [finding("error", "design-required", "design/README.md", null, "design/README.md is required when has_ui is true (FORMAT.md §3)")];
 }
 
+// Every text and image segment is scanned once, in buildContext; each leak rule filters the cached hits.
 function scanInstance(ctx, patterns) {
-  const opts = { allowHosts: ctx.allowHosts, exactHosts: ctx.exactHosts };
-  const out = [];
-  const keep = (file, hits, withLine) => {
-    for (const h of hits) {
-      if (!patterns.includes(h.pattern)) continue;
-      out.push({ file, line: withLine ? h.line : null, match: h.match, pattern: h.pattern, kind: h.kind });
-    }
-  };
-  for (const [file, text] of ctx.texts) keep(file, scanText(text, opts), true);
-  for (const [file, img] of ctx.images) {
-    if (img.format === null) continue;
-    for (const seg of img.segments) keep(file, scanText(seg, opts), false);
-  }
-  return out;
+  return ctx.leakHits.filter((h) => patterns.includes(h.pattern));
 }
 
 const leakRule = (rule, patterns, describe) => (ctx) =>

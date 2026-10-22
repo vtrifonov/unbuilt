@@ -23,7 +23,9 @@ function hostAllowedNormalized(host, o) {
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
 
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}/g;
+// Every scan regex is linear in the input: a match may start only at the beginning of a run of its
+// character class (left-boundary lookbehind), so an interior position fails in constant time.
+const EMAIL_RE = /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}/g;
 const EMAIL_ALLOWED_BASE = ["example.com", "example.org", "example.net"];
 const EMAIL_ALLOWED_SUFFIX = [".example", ".test", ".invalid", ".localhost"];
 
@@ -89,7 +91,9 @@ function scanIpv4(text, opts) {
   return out;
 }
 
-const IPV6_CANDIDATE_RE = /(?<![\w:.])[0-9a-f:]*:[0-9a-f:]*(?:%[a-z0-9]+)?(?![\w:]|\.[\w])/gi;
+// Unambiguous form of "hex and colons with at least one colon"; an address with a zone index is under 64 characters.
+const IPV6_CANDIDATE_RE = /(?<![\w:.])(?:[0-9a-f]*:)+[0-9a-f]*(?:%[a-z0-9]+)?(?![\w:]|\.[\w])/gi;
+const IPV6_MAX_CANDIDATE = 64;
 
 function classifyIpv6(candidate) {
   const addr = candidate.split("%")[0];
@@ -109,6 +113,7 @@ function classifyIpv6(candidate) {
 function scanIpv6(text, opts) {
   const out = [];
   for (const m of text.matchAll(IPV6_CANDIDATE_RE)) {
+    if (m[0].length > IPV6_MAX_CANDIDATE) continue;
     const c = classifyIpv6(m[0]);
     if (!c) continue;
     const addr = c.addr.toLowerCase();
@@ -129,7 +134,7 @@ export const TLDS = [
   "internal", "lan", "corp", "intranet", "arpa",
 ];
 const BARE_HOST_RE = new RegExp(`(?<![@\\w.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:${TLDS.join("|")}))(?![\\w-])`, "gi");
-const URL_HOST_RE = /\b[a-z][a-z0-9+.-]*:\/\/([^/\s?#\[\]"'<>()`]+)/gi;
+const URL_HOST_RE = /(?<![A-Za-z0-9+.\-_])[a-z][a-z0-9+.-]*:\/\/([^/\s?#\[\]"'<>()`]+)/gi;
 const IPV4_FULL_RE = new RegExp(`^${IPV4_RE.source}$`);
 
 // URL authorities (userinfo@host:port): the host is the part after the last "@" with any ":port" stripped.

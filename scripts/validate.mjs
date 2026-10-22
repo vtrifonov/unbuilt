@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { RULES, SUPPORTED_FORMAT_VERSION, finding, isCalendarDate } from "./lib/rules.mjs";
-import { DEFAULT_ALLOW_HOSTS, maskText } from "./lib/redaction.mjs";
+import { DEFAULT_ALLOW_HOSTS, maskText, scanText } from "./lib/redaction.mjs";
 import { walkInstance, readText } from "./lib/walk.mjs";
 import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
 import { extractImageText } from "./lib/image-meta.mjs";
@@ -89,6 +89,20 @@ function normaliseModules(meta, yaml) {
   });
 }
 
+// Leak scanning happens once per text and image segment; the five leak-* rules filter these hits by pattern.
+function collectLeakHits(texts, images, opts) {
+  const hits = [];
+  const keep = (file, found, withLine) => {
+    for (const h of found) hits.push({ file, line: withLine ? h.line : null, match: h.match, pattern: h.pattern, kind: h.kind });
+  };
+  for (const [file, text] of texts) keep(file, scanText(text, opts), true);
+  for (const [file, img] of images) {
+    if (img.format === null) continue;
+    for (const seg of img.segments) keep(file, scanText(seg, opts), false);
+  }
+  return hits;
+}
+
 function sectionCitations(prose, section, knownPrefixes) {
   const lines = prose.split("\n").slice(section.startLine - 1, section.endLine).join("\n");
   return findCitations(lines, knownPrefixes).map((c) => ({ id: c.id, line: c.line + section.startLine - 1 }));
@@ -131,10 +145,13 @@ export function buildContext(root, today) {
   }
   const citations = new Map();
   for (const [p, text] of prose) citations.set(p, findCitations(text, knownPrefixes));
+  const allowHosts = DEFAULT_ALLOW_HOSTS;
+  const exactHosts = metaUsable ? exactHostsOf(meta) : [];
+  const leakHits = collectLeakHits(texts, images, { allowHosts, exactHosts });
   return {
     root, today, entries, dirs: new Set(dirs), files, texts, images, nodeModulesDirs, yaml, meta, versionError, metaUsable,
     modules, moduleIds, prose, declFiles, attempts, declarations, scenarioFiles, scenarios, citations,
-    allowHosts: DEFAULT_ALLOW_HOSTS, exactHosts: metaUsable ? exactHostsOf(meta) : [],
+    allowHosts, exactHosts, leakHits,
   };
 }
 
