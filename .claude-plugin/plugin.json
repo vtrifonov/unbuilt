@@ -1,0 +1,9 @@
+{
+  "name": "unbuilt",
+  "version": "0.1.0",
+  "description": "Extract, build and validate unbuilt repos: software shared as a buildable spec instead of code.",
+  "author": { "name": "Vasil Trifonov" },
+  "repository": "https://github.com/vtrifonov/unbuilt",
+  "license": "MIT",
+  "keywords": ["unbuilt", "spec", "skills"]
+}

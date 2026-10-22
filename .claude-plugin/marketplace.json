@@ -1,0 +1,12 @@
+{
+  "name": "unbuilt",
+  "owner": { "name": "Vasil Trifonov" },
+  "description": "Marketplace for the unbuilt plugin.",
+  "plugins": [
+    {
+      "name": "unbuilt",
+      "source": ".",
+      "description": "Extract, build and validate unbuilt repos."
+    }
+  ]
+}
