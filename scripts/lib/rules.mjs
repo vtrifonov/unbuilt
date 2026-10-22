@@ -478,6 +478,10 @@ export function fileTypes(ctx) {
     if (reason !== null) err(e.path, `${e.path}: image cannot be parsed for metadata scanning (${reason})`);
   }
   for (const d of ctx.nodeModulesDirs) err(d, `${d} is a node_modules directory`);
+  // Rasters embedded as data: URIs in text files (spec amendment 7a), reported at the containing file and line.
+  for (const e of ctx.embeds) {
+    if (e.error !== null) out.push(finding("error", "file-types", e.file, e.line, `${e.file}: embedded image cannot be parsed for metadata scanning (${e.error}) (FORMAT.md §7)`));
+  }
   return out;
 }
 

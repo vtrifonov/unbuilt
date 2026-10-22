@@ -89,17 +89,49 @@ function normaliseModules(meta, yaml) {
   });
 }
 
+// A raster embedded in a text file as a data: URI (spec amendment 7a). Only base64 png, jpeg and webp
+// can be decoded and scanned; any other data:image/ embed becomes a file-types error.
+const EMBED_RE = /data:image\/([A-Za-z0-9.+-]+)((?:;[A-Za-z0-9=.+-]*)*),([A-Za-z0-9+/=%]+)/gi;
+const EMBED_FORMATS = { png: "png", jpeg: "jpeg", jpg: "jpeg", webp: "webp" };
+
+function scanEmbed(type, params, payload) {
+  const format = EMBED_FORMATS[type];
+  if (format === undefined) return { error: `data:image/${type} is not png, jpeg or webp`, segments: [] };
+  if (!params.split(";").includes("base64")) return { error: `data:image/${type} is not base64-encoded`, segments: [] };
+  const buf = Buffer.from(payload, "base64");
+  if (buf.length > MAX_IMAGE_BYTES) return { error: `decodes to ${buf.length} bytes; the limit is ${MAX_IMAGE_BYTES}`, segments: [] };
+  const img = extractImageText(buf);
+  let error = img.error;
+  if (error === null && img.format !== format) error = `${img.format} content in a data:image/${type} URI`;
+  return { error, segments: img.format === null ? [] : img.segments };
+}
+
+function findEmbeds(texts) {
+  const embeds = [];
+  for (const [file, text] of texts) {
+    let line = 1;
+    let from = 0;
+    for (const m of text.matchAll(EMBED_RE)) {
+      for (let i = text.indexOf("\n", from); i !== -1 && i < m.index; i = text.indexOf("\n", i + 1)) line++;
+      from = m.index;
+      embeds.push({ file, line, ...scanEmbed(m[1].toLowerCase(), m[2].toLowerCase(), m[3]) });
+    }
+  }
+  return embeds;
+}
+
 // Leak scanning happens once per text and image segment; the five leak-* rules filter these hits by pattern.
-function collectLeakHits(texts, images, opts) {
+function collectLeakHits(texts, images, embeds, opts) {
   const hits = [];
-  const keep = (file, found, withLine) => {
-    for (const h of found) hits.push({ file, line: withLine ? h.line : null, match: h.match, pattern: h.pattern, kind: h.kind });
+  const keep = (file, found, line) => {
+    for (const h of found) hits.push({ file, line: line === undefined ? h.line : line, match: h.match, pattern: h.pattern, kind: h.kind });
   };
-  for (const [file, text] of texts) keep(file, scanText(text, opts), true);
+  for (const [file, text] of texts) keep(file, scanText(text, opts));
   for (const [file, img] of images) {
     if (img.format === null) continue;
-    for (const seg of img.segments) keep(file, scanText(seg, opts), false);
+    for (const seg of img.segments) keep(file, scanText(seg, opts), null);
   }
+  for (const e of embeds) for (const seg of e.segments) keep(e.file, scanText(seg, opts), e.line);
   return hits;
 }
 
@@ -150,9 +182,10 @@ export function buildContext(root, today) {
   for (const [p, text] of prose) citations.set(p, findCitations(text, knownPrefixes));
   const allowHosts = DEFAULT_ALLOW_HOSTS;
   const exactHosts = metaUsable ? exactHostsOf(meta) : [];
-  const leakHits = collectLeakHits(texts, images, { allowHosts, exactHosts });
+  const embeds = findEmbeds(texts);
+  const leakHits = collectLeakHits(texts, images, embeds, { allowHosts, exactHosts });
   return {
-    root, today, entries, dirs: new Set(dirs), files, texts, images, nodeModulesDirs, yaml, meta, versionError, metaUsable,
+    root, today, entries, dirs: new Set(dirs), files, texts, images, embeds, nodeModulesDirs, yaml, meta, versionError, metaUsable,
     modules, moduleIds, prose, declFiles, attempts, declarations, scenarioFiles, scenarios, citations,
     allowHosts, exactHosts, leakHits,
   };
