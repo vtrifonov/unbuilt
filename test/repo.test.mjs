@@ -83,6 +83,8 @@ test("FORMAT.md section 7 and the leak-secret row state the credential and Beare
     assert.match(text, /eight or more characters, holds a digit and is not a placeholder/, name);
     assert.match(text, /`Bearer` values? of 20 or more characters/, name);
     assert.match(text, /a digit and a letter in each half/, name);
+    // The prose-word exception binds only to the quote-or-backtick context, never to `Authorization:` (CR-COR-28).
+    assert.match(text, /after `Authorization:`, after a quote or (?:a )?backtick unless two hyphen-separated parts/, name);
   }
   assert.match(fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8"), /a `Bearer` value needs header context or a digit and a letter in each half/);
 });
