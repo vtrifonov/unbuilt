@@ -57,3 +57,27 @@ test("ipv6 negatives", () => {
     assert.equal(hits(t, "ipv6").length, 0, t);
   }
 });
+test("hostname positives", () => {
+  const cases = [["Served from build01.widgets-intranet.com.", "build01.widgets-intranet.com"], ["db.corp.internal", "db.corp.internal"],
+    ["https://billing-abc123-ew.a.run.app/api", "billing-abc123-ew.a.run.app"], ["http://grafana:3000/d/x", "grafana"], ["https://wiki/", "wiki"],
+    ["http://nas.local/share", "nas.local"], ["see Widgets.IO today", "Widgets.IO"], ["box.lan", "box.lan"]];
+  for (const [t, m] of cases) { const h = hits(t, "hostname"); assert.equal(h.length, 1, t); assert.equal(h[0].match, m); }
+});
+test("hostname negatives", () => {
+  for (const t of ["Clipjar.app", "SKILL.md", "GRDB.swift", "UTF-8", "clip.id", "user.id", "model.pt", "logo.ai", "see `settings.local.json`", "chrome.storage.local", "user.home", "Key.home",
+    '<svg xmlns="http://www.w3.org/2000/svg">', "https://github.com/vtrifonov/clipjar", "git@github.com:vtrifonov/clipjar.git", "user@example.com", "docs.example.org", "file:///tmp/x", "http://127.0.0.1:8080/", "http://[::1]/"]) {
+    assert.equal(hits(t, "hostname").length, 0, t);
+  }
+});
+test("hostname allow options", () => {
+  const opts = { exactHosts: ["tool.example-public.org"] };
+  assert.equal(hits("tool.example-public.org", "hostname", opts).length, 0);
+  assert.equal(hits("ci.tool.example-public.org", "hostname", opts).length, 1);
+  assert.equal(hits("vpn.acme-widgets.com", "hostname", { allowHosts: ["acme-widgets.com"] }).length, 0);
+});
+test("no double report between email and hostname (R-VAL-28)", () => {
+  const f = scanText("alice@build01.widgets-intranet.com");
+  assert.deepEqual(f.map((x) => x.pattern), ["email"]);
+  const g = scanText("https://build01.widgets-intranet.com/x");
+  assert.deepEqual(g.map((x) => x.pattern), ["hostname"]);
+});

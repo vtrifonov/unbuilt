@@ -118,6 +118,38 @@ function scanIpv6(text, opts) {
   return out;
 }
 
+export const TLDS = [
+  "com", "net", "org", "io", "dev", "co", "info", "biz", "cloud", "tech", "xyz", "site", "online", "page",
+  "uk", "de", "fr", "nl", "eu", "bg", "ca", "au", "ch", "se", "fi", "dk", "es", "ie", "cz", "ro", "gr",
+  "jp", "cn", "kr", "br", "mx", "nz", "za", "ru", "ua", "tr", "il", "sg", "hk", "tw", "vn", "ly", "gg", "tv", "fm",
+  "internal", "lan", "corp", "intranet", "arpa",
+];
+const BARE_HOST_RE = new RegExp(`(?<![@\\w.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:${TLDS.join("|")}))(?![\\w-])`, "gi");
+const URL_HOST_RE = /\b[a-z][a-z0-9+.-]*:\/\/([^/\s:?#\[\]]+)/gi;
+const IPV4_FULL_RE = new RegExp(`^${IPV4_RE.source}$`);
+
+function scanHostname(text, opts, emailSpans) {
+  const out = [];
+  const urlSpans = [];
+  for (const m of text.matchAll(URL_HOST_RE)) {
+    const host = m[1];
+    const start = m.index + m[0].length - host.length;
+    const span = { start, end: start + host.length };
+    if (!host || IPV4_FULL_RE.test(host) || host.startsWith("[")) continue;
+    urlSpans.push(span);
+    if (isHostAllowed(host, opts)) continue;
+    out.push({ pattern: "hostname", ...span, match: host });
+  }
+  const taken = [...urlSpans, ...emailSpans];
+  for (const m of text.matchAll(BARE_HOST_RE)) {
+    const span = { start: m.index, end: m.index + m[0].length };
+    if (taken.some((s) => overlaps(s, span))) continue;
+    if (isHostAllowed(m[1], opts)) continue;
+    out.push({ pattern: "hostname", ...span, match: m[1] });
+  }
+  return out;
+}
+
 function lineStarts(text) {
   const starts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
@@ -138,7 +170,7 @@ function position(starts, offset) {
 function scanSpans(text, opts) {
   const o = normalizeOpts(opts);
   const emails = scanEmail(text, o);
-  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o)];
+  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o), ...scanHostname(text, o, emails)];
   return all.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
