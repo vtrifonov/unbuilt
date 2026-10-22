@@ -165,3 +165,121 @@ test("internal errors exit 2 (R-DIF-4)", (t) => {
     assert.ok(r.stderr.split("\n")[1].length > 0);
   }
 });
+
+const CORE = "modules/core/SPEC.md";
+const CORE2 = "- **CORE-2** (SHOULD) Saved notes are listed newest first.";
+const INV1 = "- **INV-1** (MUST) A note never leaves the machine it was typed on.\n";
+const reqEmpty = (json, except = []) => {
+  for (const k of LISTS.requirements) if (!except.includes(k)) assert.deepEqual(json.requirements[k], [], `requirements.${k}`);
+};
+const append = (dir, rel, text) => writeIn(dir, rel, readIn(dir, rel) + text);
+
+test("JSON shape is fixed under change (R-DIF-13, R-DIF-14)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, "**CORE-2** (SHOULD)", "**CORE-2** (MUST)"));
+  assert.ok(r.stdout.endsWith("}\n"));
+  assert.equal(r.code, 1);
+  assert.equal(r.json.changed, true);
+  assert.deepEqual(Object.keys(r.json), ["changed", "old", "new", ...Object.keys(LISTS)]);
+  for (const [group, keys] of Object.entries(LISTS)) assert.deepEqual(Object.keys(r.json[group]), keys, group);
+  assert.deepEqual(r.json.old, { name: "my-idea", unbuilt: 1 });
+  assert.deepEqual(r.json.new, { name: "my-idea", unbuilt: 1 });
+});
+
+test("requirement added (R-DIF-27, R-DIF-18)", (t) => {
+  const r = diffJson(t, ({ newDir }) => append(newDir, CORE, "- **CORE-3** (MAY) (inferred) Notes can be pinned.\n"));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.requirements.added, [{ id: "CORE-3", modality: "MAY", inferred: true, file: CORE, line: 7 }]);
+  reqEmpty(r.json, ["added"]);
+  for (const k of LISTS.files) assert.deepEqual(r.json.files[k], []);
+});
+
+test("text changed (R-DIF-25, R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, "A note is saved", "A note is stored"));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.requirements.changed, [{ id: "CORE-1", file: CORE, line: 5, old_line: 5 }]);
+  assert.deepEqual(r.json.requirements.modality, []);
+  assert.deepEqual(r.json.requirements.inferred, []);
+});
+
+test("modality only (R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, "**CORE-2** (SHOULD)", "**CORE-2** (MUST)"));
+  assert.deepEqual(r.json.requirements.modality, [{ id: "CORE-2", from: "SHOULD", to: "MUST" }]);
+  assert.deepEqual(r.json.requirements.changed, []);
+});
+
+test("text and modality (R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, CORE2, "- **CORE-2** (MUST) Saved notes are listed oldest first."));
+  assert.deepEqual(r.json.requirements.changed.map((e) => e.id), ["CORE-2"]);
+  assert.deepEqual(r.json.requirements.modality.map((e) => e.id), ["CORE-2"]);
+});
+
+test("inferred only (R-DIF-25, R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, "**CORE-1** (MUST) A note", "**CORE-1** (MUST) (inferred) A note"));
+  assert.deepEqual(r.json.requirements.inferred, [{ id: "CORE-1", from: false, to: true }]);
+  assert.deepEqual(r.json.requirements.changed, []);
+});
+
+test("retired (R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, CORE2, "- **CORE-2** retired: replaced by sort options."));
+  assert.deepEqual(r.json.requirements.retired, [{ id: "CORE-2", file: CORE, line: 6 }]);
+});
+
+test("retired reason only is no change (R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    edit(oldDir, CORE, CORE2, "- **CORE-2** retired: old reason.");
+    edit(newDir, CORE, CORE2, "- **CORE-2** retired: new reason.");
+  });
+  assert.equal(r.code, 0, r.stderr);
+});
+
+test("removed (R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, `${CORE2}\n`, ""));
+  assert.deepEqual(r.json.requirements.removed, [{ id: "CORE-2", old_file: CORE }]);
+});
+
+test("removed retired (R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    edit(oldDir, CORE, CORE2, "- **CORE-2** retired: gone.");
+    edit(newDir, CORE, `${CORE2}\n`, "");
+  });
+  assert.deepEqual(r.json.requirements.removed, [{ id: "CORE-2", old_file: CORE }]);
+});
+
+test("un-retired and newly retired IDs (R-DIF-27)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    edit(oldDir, CORE, CORE2, "- **CORE-2** retired: gone.");
+    append(newDir, CORE, "- **CORE-4** retired: never shipped.\n");
+  });
+  assert.deepEqual(r.json.requirements.added.map((e) => e.id), ["CORE-2"]);
+  assert.deepEqual(r.json.requirements.retired, []);
+});
+
+test("an ID moved between files unchanged is not reported (R-DIF-27)", (t) => {
+  const line = "- **CORE-1** (MUST) A note is saved when the user presses the capture key.";
+  const r = diffJson(t, ({ newDir }) => {
+    edit(newDir, CORE, `${line}\n`, "");
+    edit(newDir, "SPEC.md", INV1, `${INV1}${line}\n`);
+  });
+  reqEmpty(r.json);
+});
+
+test("invariant added (R-DIF-24)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, "SPEC.md", INV1, `${INV1}- **INV-2** (MUST) Notes survive a restart.\n`));
+  assert.deepEqual(r.json.requirements.added, [{ id: "INV-2", modality: "MUST", inferred: false, file: "SPEC.md", line: 23 }]);
+});
+
+test("fenced and commented declarations are ignored (R-DIF-24)", (t) => {
+  const fence = "`".repeat(3);
+  const r = diffJson(t, ({ newDir }) => append(newDir, CORE, `${fence}\n- **CORE-9** (MUST) Hidden.\n${fence}\n<!--\n- **CORE-9** (MUST) Hidden.\n-->\n`));
+  reqEmpty(r.json);
+});
+
+test("first declaration wins (R-DIF-26)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, "SPEC.md", INV1, `${INV1}- **CORE-1** (MUST) A different text.\n`));
+  assert.deepEqual(r.json.requirements.changed, [{ id: "CORE-1", file: "SPEC.md", line: 23, old_line: 5 }]);
+});
+
+test("requirement IDs sort numerically (R-DIF-17)", (t) => {
+  const r = diffJson(t, ({ newDir }) => append(newDir, CORE, "- **CORE-10** (MUST) Ten.\n- **CORE-3** (MUST) Three.\n"));
+  assert.deepEqual(r.json.requirements.added.map((e) => e.id), ["CORE-3", "CORE-10"]);
+});
