@@ -730,14 +730,17 @@ test("file-types FIFO", { skip: isWin ? "no FIFOs on Windows" : false }, (t) => 
   assert.ok(r.result.errors.some((f) => f.rule === "file-types" && f.file === "pipe" && f.message.includes("FIFO")));
 });
 test("an unreadable instance directory exits 2 with usage on stderr and nothing on stdout (amendment 8e)", { skip: isWin ? "no POSIX modes on Windows" : isRoot ? "root can read mode-000 directories" : false }, (t) => {
-  const dir = makeTempDir(t); copyMinimalValid(dir);
-  fs.chmodSync(dir, 0);
-  let r;
-  try { r = runCli([dir, "--json", "--today", "2026-10-22"]); } finally { fs.chmodSync(dir, 0o755); }
-  assert.equal(r.code, 2);
-  assert.equal(r.stdout, "");
-  assert.match(r.stderr, /^cannot read directory: /);
-  assert.match(r.stderr, /usage: node scripts\/validate\.mjs/);
+  // Mode 000 cannot be listed; mode 400 can be listed but not searched, so no entry beneath it can be read.
+  for (const mode of [0, 0o400]) {
+    const dir = makeTempDir(t); copyMinimalValid(dir);
+    fs.chmodSync(dir, mode);
+    let r;
+    try { r = runCli([dir, "--json", "--today", "2026-10-22"]); } finally { fs.chmodSync(dir, 0o755); }
+    assert.equal(r.code, 2, `mode ${mode.toString(8)}: ${r.stdout}`);
+    assert.equal(r.stdout, "");
+    assert.match(r.stderr, /^cannot read directory: /);
+    assert.match(r.stderr, /usage: node scripts\/validate\.mjs/);
+  }
 });
 test("file-types unreadable file", { skip: isWin ? "no POSIX modes on Windows" : isRoot ? "root can read mode-000 files" : false }, (t) => {
   const r = runFixture(t, "file-types", { mutate: (d) => { writeIn(d, "secret.md", "x"); fs.chmodSync(path.join(d, "secret.md"), 0); } });
