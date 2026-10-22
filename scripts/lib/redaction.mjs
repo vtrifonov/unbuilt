@@ -196,7 +196,9 @@ export const SECRET_SHAPES = [
   /\bnpm_[A-Za-z0-9]{36}\b/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
 ];
-const GENERIC_SECRET_RE = /(?<![A-Za-z0-9])(pass(word|wd)?|secret|token|api[_-]?key)["']?\s*[:=]\s*["']?([^\s"'<>]{8,})/gi;
+// A credential keyword, an optional identifier tail (SECRET_KEY, aws_secret_access_key), then ":" or "=" and the value (amendment 7b).
+const GENERIC_SECRET_RE = /(?<![A-Za-z0-9])(?:pass(?:word|wd)?|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)[A-Za-z0-9_-]{0,32}["']?\s*[:=]\s*["']?([^\s"'<>]{8,})/gi;
+const BEARER_RE = /\bBearer\s+([A-Za-z0-9._~+/-]{20,})/g;
 
 function isPlaceholderValue(v) {
   if (v.startsWith("<") || v.startsWith("$")) return true;
@@ -211,9 +213,11 @@ function scanSecret(text, seeded = []) {
   for (const re of SECRET_SHAPES) {
     for (const m of text.matchAll(re)) found.push({ pattern: "secret", start: m.index, end: m.index + m[0].length, match: m[0] });
   }
-  for (const m of text.matchAll(GENERIC_SECRET_RE)) {
-    if (isPlaceholderValue(m[3])) continue;
-    found.push({ pattern: "secret", start: m.index, end: m.index + m[0].length, match: m[0] });
+  for (const re of [GENERIC_SECRET_RE, BEARER_RE]) {
+    for (const m of text.matchAll(re)) {
+      if (isPlaceholderValue(m[1])) continue;
+      found.push({ pattern: "secret", start: m.index, end: m.index + m[0].length, match: m[0] });
+    }
   }
   found.sort((a, b) => a.start - b.start || b.end - a.end);
   const out = [];

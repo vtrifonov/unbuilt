@@ -132,6 +132,20 @@ test("generic credential keys after _ or - and JSON-quoted keys (assembled)", ()
   for (const t of positives) assert.equal(hits(t, "secret").length, 1, t.slice(0, 10));
   assert.equal(hits("mypassword=" + "Summer" + "2026" + ".Admin", "secret").length, 0);
 });
+test("key-suffixed credential names and Bearer tokens are secrets (amendment 7b, assembled)", () => {
+  const v = ["a1B2", "c3D4", "e5F6", "g7H8"].join("");
+  const positives = [
+    A("SECRET", "_KEY = '") + "django-insecure-" + v + "'",
+    A("aws_secret_", "access_key = ") + v + "/" + v,
+    A("AWS_SECRET_", "ACCESS_KEY=") + v + v,
+    A("private", "_key: ") + v,
+    A("Authorization: Bea", "rer ") + v + v,
+  ];
+  for (const t of positives) assert.equal(hits(t, "secret").length, 1, t.slice(0, 14));
+  const negatives = ["Authorization: Bearer <token>", "Authorization: Bearer YOUR_ACCESS_TOKEN_GOES_HERE", "Bearer " + "a1b2c3d4", "SECRET_KEY = os.environ['DJANGO_SECRET_KEY']",
+    "private_key: <path-to-key>", "aws_secret_access_key = $AWS_SECRET", "access_key: REPLACE_WITH_YOUR_KEY", "mysecret_key=" + v];
+  for (const t of negatives) assert.equal(hits(t, "secret").length, 0, t);
+});
 test("ipv6 at the end of a sentence", () => {
   const h = hits("Connects to fd12:3456:789a::1.", "ipv6");
   assert.equal(h.length, 1);
