@@ -125,7 +125,7 @@ Company and product names are removed by default; the author opts in per name at
 
 **What the validator scans.** The mechanical subset: emails (`leak-email`), IPv4 and IPv6 addresses (`leak-ipv4`), hostnames and URL hosts (`leak-hostname`), home paths (`leak-home-path`), secret shapes (`leak-secret`), and files it cannot scan (`file-types`). Ticket keys, names, devices, accounts, secrets without a known shape, and bare hostnames under unlisted TLDs are left to the extract skill's human pass.
 
-Leak rules scan each text file, each file and directory path, and each image's metadata, including a base64 png, jpeg or webp `data:` URI in a text file; any other `data:image/` URI is a `file-types` error. A `Users/<name>` or `home/<name>` directory chain is a home path. The `file` column is masked per path segment, like the match. A credential is a key ending in password, passwd, pass, secret, token, api key, private key, access key or secret key, after up to four identifier words, before `:` or `=`. `Bearer <value>` counts after `Authorization:`, a quote or a backtick, or when each half has a digit and a letter.
+Leak rules scan each text file, each file and directory path, and each image's metadata, including a base64 png, jpeg or webp `data:` URI in a text file; any other `data:image/` URI is a `file-types` error. A `Users/<name>` or `home/<name>` directory chain is a home path. The `file` column is masked per path segment, like the match. A credential is a key ending in password, passwd, pass, secret, token, api key, private key, access key or secret key, after up to four identifier words, before `:` or `=`. `Bearer <value>` counts after `Authorization:`, a quote or backtick (unless two hyphen-separated parts are 4+ letter words), or when each half has a digit and a letter.
 
 **Declined names in `unbuilt.yaml`.** Only `platforms` and `original_stack` entries are exempt from role words: a declined platform becomes `desktop`, `server` or `mobile`, and a declined stack entry is dropped. Every other value is redacted, and a renamed identifier is renamed everywhere it appears.
 
@@ -136,7 +136,7 @@ Leak rules scan each text file, each file and directory path, and each image's m
 - A URL's host is checked whatever its TLD, even a bare internal name.
 - A web route whose path starts with a `home` segment followed by a page name is a true positive for `leak-home-path`; reword it.
 
-**File types.** Every file is a regular file, either text or an image of an allowed type (section 8); an `.svg` must be a text file. Symbolic links, other binaries, unreadable files and `node_modules/` are not allowed, because the validator cannot scan them (`file-types`). The walk skips any entry named `.git`. An unreadable or unsearchable instance directory exits 2.
+**File types.** Every file is a regular file, either text or an image of an allowed type (section 8); an `.svg` must be a text file. Symbolic links, other binaries, unreadable files and `node_modules/` are unscannable, so not allowed (`file-types`). The walk skips any entry named `.git`. An unreadable or unsearchable instance directory exits 2.
 
 ## 8. Size budgets
 

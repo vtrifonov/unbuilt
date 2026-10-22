@@ -218,13 +218,20 @@ export const SECRET_SHAPES = [
 // client_secret; not tokenizer or secret_name), then ":" or "=" and the value (amendment 7b revised).
 const GENERIC_SECRET_RE = /(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-]){0,4}(?:pass(?:word|wd)?|secret|token|api[_-]?key|private[_-]?key|access[_-]?key|secret[_-]?key)["']?\s*[:=]\s*["']?([^\s"'<>]{8,})/gi;
 const BEARER_RE = /\bBearer\s+([A-Za-z0-9._~+/-]{20,})/g;
-const BEARER_HEADER_RE = /(?:Authorization:\s*|["'`])$/i;
+const BEARER_AUTH_RE = /Authorization:\s*["'`]?$/i;
+const BEARER_QUOTE_RE = /["'`]$/;
 const hasDigitAndLetter = (s) => /\d/.test(s) && /[A-Za-z]/.test(s);
+const PROSE_WORD_RE = /^[A-Za-z]{4,}$/;
+const hasTwoProseWords = (v) => v.split("-").filter((p) => PROSE_WORD_RE.test(p)).length >= 2;
 
-// A Bearer value counts only in a header context (Authorization:, or a quote or backtick before "Bearer"),
-// or when each half of the value has a digit and a letter, so prose naming a versioned auth scheme passes.
+// A Bearer value counts after Authorization:, after a quote or backtick unless two of its hyphen-separated parts
+// are letters-only words of four or more letters (prose such as `Bearer api-v2-session-token`, amendment 7b,
+// recheck 3), or when each half of the value has a digit and a letter, so prose naming a versioned auth scheme
+// passes. A quoted value is never treated more leniently than the same value unquoted.
 function isBearerSecret(text, m) {
-  if (BEARER_HEADER_RE.test(text.slice(Math.max(0, m.index - 64), m.index))) return true;
+  const before = text.slice(Math.max(0, m.index - 64), m.index);
+  if (BEARER_AUTH_RE.test(before)) return true;
+  if (BEARER_QUOTE_RE.test(before) && !hasTwoProseWords(m[1])) return true;
   const half = m[1].length >> 1;
   return hasDigitAndLetter(m[1].slice(0, half)) && hasDigitAndLetter(m[1].slice(half));
 }

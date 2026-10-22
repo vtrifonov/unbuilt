@@ -156,6 +156,24 @@ test("credential names must end in a credential noun; Bearer needs header contex
     A("Bea", "rer authentication-scheme-v2-reference"), A("Bea", "rer ") + "abcdefghijklmnopqrst" + "1"];
   for (const t of negatives) assert.equal(hits(t, "secret").length, 0, t);
 });
+test("a quoted Bearer value made of hyphenated words is prose; after Authorization: it is still a secret (security recheck 16, amendment 7b)", () => {
+  const negatives = [
+    "Auth uses `Bearer oauth2-client-credentials` tokens issued by the identity provider.",
+    'The gateway expects "Bearer jwt-signed-with-rs256-key" in the header.',
+    "Use `Bearer api-v2-session-token` for the partner API.",
+    "'Bearer refresh-token-rotated-every-24h'",
+  ];
+  for (const t of negatives) assert.equal(hits(t, "secret").length, 0, t);
+  const positives = [
+    A("Authorization: Bea", "rer ") + "oauth2-client-credentials",
+    A("Authorization: \"Bea", "rer ") + "api-v2-session-token\"",
+    A("\"Bea", "rer ") + ["a1b2c3d4e5f6", "g7h8i9j0k1l2"].join("") + "\"",
+    A("`Bea", "rer ") + ["3f2a9c1e", "7b4d", "4e8a", "9c2f", "1a2b3c4d5e6f"].join("-") + "`",
+    A("\"Bea", "rer ") + ["eyJhbGciOi", "eyJzdWIiOi", "c2lnbmF0dXJl"].join(".") + "\"",
+    A("'Bea", "rer ") + ["v2", "auth", "token", "9f8e7d6c5b4a"].join("-") + "'",
+  ];
+  for (const t of positives) assert.equal(hits(t, "secret").length, 1, t.slice(0, 20));
+});
 test("a URL scheme after _, -, . or + is still a URL (amendment 7c revised)", () => {
   const rows = [["_https://build01.widgets-intranet.com_", "build01.widgets-intranet.com"], ["_https://grafana:3000/d/x_", "grafana"], ["_https://wiki/x_", "wiki"],
     ["-https://wiki", "wiki"], [".https://wiki", "wiki"], ["+https://wiki", "wiki"],
