@@ -170,12 +170,32 @@ test("no home paths, emails, IPs or secrets in repo files (R-REPO-7, R-REPO-10)"
     assert.deepEqual(bad.map((f) => `${e.path}:${f.line} ${f.pattern} ${f.match.slice(0, 2)}…`), []);
   }
 });
-test("test files hold no complete secret shape except the AWS documentation key (R-TST-9)", () => {
-  for (const e of repoFiles()) {
-    if (!(/^test\/[^/]+\.test\.mjs$/.test(e.path) || e.path === "test/helpers.mjs")) continue;
-    const bad = scanText(readText(path.join(ROOT, e.path))).filter((f) => f.pattern === "secret" && !f.match.includes("AKIAIOSFODNN7EXAMPLE"));
-    assert.deepEqual(bad.map((f) => `${e.path}:${f.line} ${f.match.slice(0, 2)}…`), []);
+// Every text file under the repository root, test/fixtures/** included; only .git and node_modules are skipped.
+// A file is text when it holds no NUL byte, as in the validator's walk.
+function allTextFiles(rel = "") {
+  const out = [];
+  for (const ent of fs.readdirSync(path.join(ROOT, rel), { withFileTypes: true })) {
+    if (ent.name === ".git" || ent.name === "node_modules") continue;
+    const r = rel === "" ? ent.name : `${rel}/${ent.name}`;
+    if (ent.isDirectory()) out.push(...allTextFiles(r));
+    else if (ent.isFile()) {
+      const buf = fs.readFileSync(path.join(ROOT, r));
+      if (!buf.includes(0)) out.push({ path: r, text: buf.toString("utf8") });
+    }
   }
+  return out;
+}
+test("no committed text file holds a complete secret shape except the AWS documentation key (R-TST-9)", () => {
+  const files = allTextFiles();
+  assert.ok(files.some((f) => f.path.startsWith("test/fixtures/leak-secret/")), "the scan must reach test/fixtures/**");
+  const bad = [];
+  for (const f of files) {
+    for (const hit of scanText(f.text)) {
+      // Only the masked start of a hit is printed, so a failure never echoes the secret.
+      if (hit.pattern === "secret" && !hit.match.includes("AKIAIOSFODNN7EXAMPLE")) bad.push(`${f.path}:${hit.line} ${hit.match.slice(0, 2)}…`);
+    }
+  }
+  assert.deepEqual(bad, []);
 });
 test("ES modules with node: imports only; Markdown under 1,500 lines (R-REPO-8, R-REPO-9)", () => {
   for (const e of repoFiles()) {
