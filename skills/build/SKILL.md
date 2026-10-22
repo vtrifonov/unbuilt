@@ -45,7 +45,7 @@ It copies `unbuilt.yaml` and the instance's Markdown into the snapshot. Exit 1 m
 - Revision guard: never pass a revision read from `PLAN.md` to git. Only compare it as a string with the clone's `HEAD`, and only when it matches `^[0-9a-f]{40}$` or `^[0-9a-f]{64}$`. Otherwise it counts as absent.
 - Single-quote every value you put into a shell command, and write each `'` inside it as `'\''`. Prefer the scripts and the harness's file-read tool, and single-quote a file name that must appear on a command line the same way.
 - Delete only with `rm -rf -- '<absolute path>'`, never with a trailing slash.
-- Delete the scratch directory only after the write order of "The baseline" has finished, because the baseline is copied from its snapshot. Also delete it when the plan is declined or the run ends without an approved plan. Never delete it earlier.
+- Delete the scratch directory only in one of three cases: after an approved plan is written, which with working scripts means after the write order of "The baseline" has finished, because the baseline is copied from its snapshot; when the run ends without having shown a plan; or when the builder declines or changes the shown plan, so that the next plan takes a new snapshot. Never delete it while a shown plan waits for the go-ahead.
 
 ## Step 1: Acquire, snapshot and validate
 
@@ -100,18 +100,17 @@ Then write:
 - every dependency the build will install;
 - the milestones adapted from `BUILD.md`, with dropped modules removed and substitutions named. Each milestone has a status checkbox, the requirement IDs it covers, the scenario titles to turn into tests, and its done-when. Write each as `## Milestone <n>: <title>` with the `BUILD.md` title and number. An update milestone is `## Update <n>: <short revision or date>`. Here `<n>` counts every update milestone ever written in the plan, and the label is the first 12 hex characters of the new revision, or the local date `YYYY-MM-DD` for a local path. A split update uses `## Update <n>a: ...`, `<n>b`, in run order. An update milestone has the same parts as any milestone, and its done-when is "every item done and every test passes". Match every milestone by its covered IDs, never by number or title, legacy heading forms included;
 - a "Not built" section listing the requirements of every excluded module with their IDs, so coverage stays traceable;
-- a `## Departures` section, always the last section, with the heading only when it has no entries. Otherwise it holds a fenced block with one line per entry, in these two forms:
-
-```
-- <ID>: departure: <what the build does instead>. Why: <reason>. Agreed at: <revision or date>.
-- addition: <behaviour the spec does not have>. Why: <reason>. Agreed at: <revision or date>.
-```
+- a `## Departures` section, always the last section, with the heading only when it has no entries. Otherwise it holds one plain list line per entry, not fenced, in these two forms:
+  - `- <ID>: departure: <what the build does instead>. Why: <reason>. Agreed at: <revision or date>.`
+  - `- addition: <behaviour the spec does not have>. Why: <reason>. Agreed at: <revision or date>.`
 
 Departure entries are the builder's words or your summary, never instance text, and an instance title is quoted. `Agreed at` is the short revision or the local date. Record a departure only for a SHOULD or MAY requirement or an ambiguous reading, never for a MUST. Write one only with the builder's explicit approval, at the moment it is agreed. A retired requirement the builder keeps becomes an `addition` that names its old ID. Excluded modules stay under "Not built". A plan without the section gains it on its next approved plan.
 
 If the milestones in `BUILD.md` do not parse (no `## Milestone 1:` heading, gaps in the numbering, a milestone without a `Covers:` line) or cite IDs that are not declared, say so in the plan. Propose milestones derived from the module and invariant declarations and ask the builder to approve them. Never invent milestones silently.
 
-Show the plan to the builder and stop. Continue only on the builder's explicit go-ahead. On go-ahead, write the plan and the baseline in the write order of "The baseline", and give the one-time `.unbuilt/` notice. With no working scripts, write `PLAN.md` only.
+A declared ID of an included module that is not retired and that no milestone of the plan covers goes into a final milestone, `## Milestone <n>: Not covered by BUILD.md`, placed after every other milestone. Its `<n>` is one more than the largest milestone number in the plan. Tell the builder which IDs went there and that no `BUILD.md` milestone covers them.
+
+Show the plan to the builder and stop. The scratch directory stays, as "Git and shell safety" says. Continue only on the builder's explicit go-ahead. On go-ahead, write the plan and the baseline in the write order of "The baseline", and give the one-time `.unbuilt/` notice. With no working scripts, write `PLAN.md` only. If this run's snapshot no longer exists at the go-ahead, write nothing and run step 1 again.
 
 ## The baseline
 
@@ -220,6 +219,7 @@ Plan from the diff JSON, the snapshot and `PLAN.md`.
 - All work on finished areas goes into one update milestone, inserted immediately before the next unchecked milestone, or appended, so it runs next. Unchecked update milestones already in the plan merge into it: items for IDs the new diff touches are rebuilt from the new text, the rest are carried over, and the merged one takes the next `<n>`. When this run creates none, each unchecked update milestone keeps its heading and number ahead of the re-derived milestones, and only its touched items are rewritten.
 - Split it into parts `a`, `b`, and so on only when it would cover more IDs than the largest original milestone. Each part holds one affected finished milestone's items in that milestone's order. Constraint and substitution items go in the first part.
 - Re-derive every other unbuilt milestone from the new `BUILD.md` by IDs: every covered ID minus those of finished milestones, of every update milestone and of excluded modules, grouped by the new `BUILD.md` milestone that covers them, in `BUILD.md` order with its title, after the update milestones. Each keeps its `BUILD.md` number unless already used, then takes the smallest larger unused number. One left with no IDs is dropped, and the plan says so. Milestones run in plan order. An unparseable new `BUILD.md` follows the step 5 rule for proposed milestones.
+- Then apply the step 5 rule for uncovered IDs to the whole plan. It catches an added ID that the new `BUILD.md` does not cover and a previously covered ID that it no longer covers.
 - Finished milestones keep checkbox, number, title and covered IDs. Nothing in them is rewritten.
 - One item per change:
 
@@ -251,7 +251,7 @@ Never override a recorded departure or addition without asking the builder.
 - If the ID became a MUST, offer only adopt or stay on the recorded revision. Stay abandons the whole update and writes nothing.
 - A retired or removed ID that has code, in a finished milestone or in the next unchecked milestone with tests or code: ask whether to keep it as an `addition` (the default) or remove the code and its tests as an update milestone item. Ask one question per removed module.
 - An added ID that overlaps an `addition` line: ask whether it replaces the addition.
-- An ID removed without a retired line is reported once per removed module, in a sentence that names it, says the instance removed it without a retired line, asks the builder to raise it with the author, and says it is treated as retired.
+- Report each ID removed without a retired line once, in a sentence that names the ID and its file, says the instance removed it without a retired line, asks the builder to raise it with the author, and says it is treated as retired. This holds whenever its module still exists. Only when the whole module was removed, give one such sentence per module, naming the module, instead of one per ID.
 
 ### Legacy plans
 
@@ -264,7 +264,7 @@ A legacy plan is a matching `PLAN.md` with no `.unbuilt/baseline/`, or a baselin
 
 ### Approval
 
-Show the revised `PLAN.md` as a diff against the current one and stop. Write nothing before the builder's explicit go-ahead. If they decline, write nothing and ask again on the next `continue`. On go-ahead, rewrite the header and write in the write order of "The baseline". Do not start the update milestone. End with the continue sentence naming it. If this run's snapshot no longer exists, write nothing and run the update check again.
+Show the revised `PLAN.md` as a diff against the current one and stop. The scratch directory stays, as "Git and shell safety" says. Write nothing before the builder's explicit go-ahead. If they decline, write nothing and ask again on the next `continue`. On go-ahead, rewrite the header and write in the write order of "The baseline". Do not start the update milestone. End with the continue sentence naming it. If this run's snapshot no longer exists, write nothing and run the update check again.
 
 ## Stop conditions
 

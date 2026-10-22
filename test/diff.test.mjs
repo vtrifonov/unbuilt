@@ -119,6 +119,23 @@ test("unreadable file exits 2 and names it (R-SNP-2, R-DIF-3)", (t) => {
   assert.ok(r.stderr.startsWith("new: modules/core/SPEC.md"), r.stderr);
 });
 
+test("unreadable directory exits 2 with the side prefix and names it (R-SNP-2, R-DIF-3)", (t) => {
+  if (unreadableSkip()) { t.skip("running as root or on Windows"); return; }
+  for (const side of ["old", "new"]) {
+    const c = sides(t);
+    const dir = path.join(side === "old" ? c.oldDir : c.newDir, "modules", "core");
+    fs.chmodSync(dir, 0o000);
+    try {
+      const r = runDiff([c.oldDir, c.newDir, "--json"]);
+      assert.equal(r.code, 2, side);
+      assert.equal(r.stdout, "", side);
+      assert.ok(r.stderr.startsWith(`${side}: modules/core: cannot be read`), r.stderr);
+    } finally {
+      fs.chmodSync(dir, 0o755);
+    }
+  }
+});
+
 test("unparseable unbuilt.yaml exits 2 with the new prefix (R-DIF-3, R-DIF-23)", (t) => {
   const bad = diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", "platforms: # lowercase tokens; a declined platform name becomes desktop, server or mobile\n  - desktop\n", "platforms: [desktop]\n"));
   assert.equal(bad.code, 2);
@@ -231,6 +248,11 @@ test("text changed (R-DIF-25, R-DIF-27)", (t) => {
   assert.deepEqual(r.json.requirements.changed, [{ id: "CORE-1", file: CORE, line: 5, old_line: 5 }]);
   assert.deepEqual(r.json.requirements.modality, []);
   assert.deepEqual(r.json.requirements.inferred, []);
+});
+
+test("trailing spaces after a declaration are no change (R-DIF-25)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, "presses the capture key.\n", "presses the capture key.   \n"));
+  assert.equal(r.code, 0, r.stdout);
 });
 
 test("modality only (R-DIF-27)", (t) => {
@@ -358,6 +380,21 @@ test("appending a scenario reports only the added scenario (R-DIF-30, R-DIF-31, 
   assert.deepEqual(r.json.scenarios, { added: [{ module: "CORE", title: "Pin a note", cites: ["CORE-1"] }], removed: [], changed: [] });
 });
 
+test("renaming the first scenario is not a scenarios.md file change (R-DIF-40)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE_SCEN, "## Capture a note", "## Capture one note"));
+  assert.deepEqual(r.json.scenarios.added.map((s) => s.title), ["Capture one note"]);
+  assert.deepEqual(r.json.scenarios.removed.map((s) => s.title), ["Capture a note"]);
+  assert.deepEqual(r.json.files, { changed: [], added: [], removed: [] });
+});
+
+test("scenario lists sort by module, then title (R-DIF-17)", (t) => {
+  const r = diffJson(t, ({ newDir }) => {
+    addSync(newDir);
+    append(newDir, CORE_SCEN, "\n## Zoom notes\n\nCovers: CORE-1\nGiven x\n");
+  });
+  assert.deepEqual(r.json.scenarios.added.map((s) => [s.module, s.title]), [["CORE", "Zoom notes"], ["SYNC", "Sync now"]]);
+});
+
 test("a heading inside a fence is not a scenario (R-DIF-30)", (t) => {
   const fence = "`".repeat(3);
   const r = diffJson(t, ({ newDir }) => append(newDir, CORE_SCEN, `\n${fence}\n## Not a scenario\n${fence}\n`));
@@ -417,7 +454,7 @@ test("a module path never escapes the side (R-DIF-23)", (t) => {
     writeIn(tmp, "outside/SPEC.md", "- **CORE-77** (MUST) OUTSIDE-TEXT.\n");
     writeIn(tmp, "outside/scenarios.md", "## OUTSIDE-TITLE\n\nCovers: CORE-77\n");
   }));
-  if (!canSymlink(makeTempDir(t))) return;
+  if (!canSymlink(makeTempDir(t))) { t.skip("symbolic links cannot be created here"); return; }
   check(diffJson(t, ({ tmp, oldDir }) => {
     fs.cpSync(path.join(REPO_ROOT, "template", "modules", "core"), path.join(tmp, "outside2"), { recursive: true });
     append(path.join(tmp, "outside2"), "SPEC.md", "- **CORE-77** (MUST) OUTSIDE-TEXT.\n");
@@ -459,6 +496,17 @@ test("substitution removed (R-DIF-35)", (t) => {
   assert.deepEqual(r.json.substitutions.changed, []);
 });
 
+test("a substitution file present on one side only is changed (R-DIF-35)", (t) => {
+  for (const missing of ["old", "new"]) {
+    const r = diffJson(t, ({ oldDir, newDir }) => {
+      addSubs(oldDir, ["storage"]);
+      addSubs(newDir, ["storage"]);
+      fs.unlinkSync(path.join(missing === "old" ? oldDir : newDir, "substitutions", "storage.md"));
+    });
+    assert.deepEqual(r.json.substitutions, { added: [], removed: [], changed: ["storage"] }, missing);
+  }
+});
+
 test("milestone covers changed (R-DIF-36, R-DIF-37)", (t) => {
   const r = diffJson(t, ({ newDir }) => {
     append(newDir, CORE, "- **CORE-3** (MAY) Notes can be pinned.\n");
@@ -470,6 +518,12 @@ test("milestone covers changed (R-DIF-36, R-DIF-37)", (t) => {
 test("milestone text only (R-DIF-37)", (t) => {
   const r = diffJson(t, ({ newDir }) => edit(newDir, "BUILD.md", "Done when: a note typed", "Done when: a note entered"));
   assert.deepEqual(r.json.milestones.changed, [noChange]);
+});
+
+test("a level-3 heading inside a milestone stays in its section (R-DIF-36)", (t) => {
+  const r = diffJson(t, ({ newDir }) => append(newDir, "BUILD.md", "\n### Notes\n\nKeep the capture key configurable.\n"));
+  assert.deepEqual(r.json.milestones.changed, [noChange]);
+  assert.deepEqual(r.json.files, { changed: [], added: [], removed: [] });
 });
 
 test("milestone title changed (R-DIF-37)", (t) => {
@@ -782,16 +836,17 @@ test("1,000 module entries sharing one path compare each large file once (review
   const sections = Array.from({ length: 20000 }, (_, i) => `\n## Section ${i}\n\nCovers: CORE-1\nGiven x\n`).join("");
   const problem = (tail) => Array.from({ length: 200000 }, (_, i) => `line ${i}\n`).join("") + tail;
   const extra = Array.from({ length: 1000 }, (_, i) => `  - id: M${i}\n    path: modules/core\n    maturity: shipped\n`).join("");
-  const r = timed(() => diffJson(t, ({ oldDir, newDir }) => {
-    for (const d of [oldDir, newDir]) {
-      edit(d, "unbuilt.yaml", CORE_MATURITY, CORE_MATURITY + extra);
-      append(d, CORE_SCEN, sections);
-    }
-    writeIn(oldDir, "modules/core/problem.md", problem("old\n"));
-    writeIn(newDir, "modules/core/problem.md", problem("new\n"));
-  }));
+  const { oldDir, newDir } = sides(t);
+  for (const d of [oldDir, newDir]) {
+    edit(d, "unbuilt.yaml", CORE_MATURITY, CORE_MATURITY + extra);
+    append(d, CORE_SCEN, sections);
+  }
+  writeIn(oldDir, "modules/core/problem.md", problem("old\n"));
+  writeIn(newDir, "modules/core/problem.md", problem("new\n"));
+  const r = timed(() => runDiff([oldDir, newDir, "--json"]));
   assert.ok(r.ms < FAST_MS, `${r.ms.toFixed(0)} ms`);
   assert.equal(r.code, 1, r.stderr);
+  r.json = JSON.parse(r.stdout);
   assert.deepEqual(r.json.files, { changed: ["modules/core/problem.md"], added: [], removed: [] });
   assert.deepEqual(r.json.scenarios, { added: [], removed: [], changed: [] });
 });
@@ -814,14 +869,14 @@ test("control, bidi and tag characters never reach the terminal raw (R-DIF-12, R
 
 test("variation selectors supplement and other invisible format characters never reach the terminal raw (R-DIF-12, R-DIF-13)", (t) => {
   const c = sides(t);
-  const INVISIBLE = "\u{e0100}\u{e01ef}\u180e\u2064\ufffb";
+  const INVISIBLE = "\u{e0100}\u{e01ef}\u180e\u2064\ufffb\u034f\u3164";
   edit(c.newDir, "modules/core/scenarios.md", "## Capture a note", "## Capture " + INVISIBLE + " note");
   const human = runDiff([c.oldDir, c.newDir]);
   for (const ch of INVISIBLE) assert.ok(!human.stdout.includes(ch), JSON.stringify(ch));
-  assert.ok(human.stdout.includes('scenarios.added  CORE "Capture ????? note" cites CORE-1 INV-1'), human.stdout);
+  assert.ok(human.stdout.includes('scenarios.added  CORE "Capture ??????? note" cites CORE-1 INV-1'), human.stdout);
   const json = runDiff([c.oldDir, c.newDir, "--json"]);
   for (const ch of INVISIBLE) assert.ok(!json.stdout.includes(ch), JSON.stringify(ch));
-  for (const esc of ["\\udb40\\udd00", "\\udb40\\uddef", "\\u180e", "\\u2064", "\\ufffb"]) assert.ok(json.stdout.includes(esc), esc);
+  for (const esc of ["\\udb40\\udd00", "\\udb40\\uddef", "\\u180e", "\\u2064", "\\ufffb", "\\u034f", "\\u3164"]) assert.ok(json.stdout.includes(esc), esc);
   assert.equal(JSON.parse(json.stdout).scenarios.added[0].title, "Capture " + INVISIBLE + " note");
 });
 

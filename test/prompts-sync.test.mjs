@@ -115,3 +115,17 @@ test("build skill deletes the staged baseline before the PLAN.md.next marker (R-
   }
   for (const s of ["delete it and any `.unbuilt/baseline.next`", "delete both staged copies", "names its old ID,."]) assert.ok(!body.includes(s), s);
 });
+test("build skill keeps scratch until the plan is decided, plans uncovered IDs and reports each removed ID (R-UPD-95, R-UPD-60, R-UPD-73)", () => {
+  const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8"));
+  const pinned = [
+    "Never delete it while a shown plan waits for the go-ahead.",
+    "If this run's snapshot no longer exists at the go-ahead, write nothing and run step 1 again.",
+    "A declared ID of an included module that is not retired and that no milestone of the plan covers goes into a final milestone, `## Milestone <n>: Not covered by BUILD.md`, placed after every other milestone.",
+    "Then apply the step 5 rule for uncovered IDs to the whole plan.",
+    "Report each ID removed without a retired line once, in a sentence that names the ID and its file,",
+    "Only when the whole module was removed, give one such sentence per module, naming the module, instead of one per ID.",
+  ];
+  for (const s of pinned) assert.ok(body.includes(s), s);
+  assert.equal(body.split("Never delete it while a shown plan waits").length, 2, "scratch rule stated once");
+  for (const s of ["the run ends without an approved plan", "is reported once per removed module", "a fenced block with one line per entry"]) assert.ok(!body.includes(s), s);
+});

@@ -32,7 +32,7 @@ const unreadableSkip = () => process.platform === "win32" || process.getuid?.() 
 const mkfifo = (p) => process.platform !== "win32" && spawnSync("mkfifo", [p]).status === 0;
 
 test("sanitize replaces every R-DIF-12 code point with ? (R-DIF-12)", () => {
-  const UNSAFE = ["\u0000", "\u001f", "\u007f", "\u0085", "\u009f", "\u061c", "\u200b", "\u200d", "\u200e", "\u200f", "\u2028", "\u2029", "\u202a", "\u202e", "\u2060", "\u2066", "\u2069", "\ufe00", "\ufe0f", "\ufeff", "\u{e0000}", "\u{e0049}", "\u{e007f}", "\u00ad", "\u180e", "\u2064", "\u206f", "\ufffb", "\u{e0100}", "\u{e01ef}", "\u{1d173}"];
+  const UNSAFE = ["\u0000", "\u001f", "\u007f", "\u0085", "\u009f", "\u061c", "\u200b", "\u200d", "\u200e", "\u200f", "\u2028", "\u2029", "\u202a", "\u202e", "\u2060", "\u2066", "\u2069", "\ufe00", "\ufe0f", "\ufeff", "\u{e0000}", "\u{e0049}", "\u{e007f}", "\u00ad", "\u180e", "\u2064", "\u206f", "\ufffb", "\u{e0100}", "\u{e01ef}", "\u{1d173}", "\u034f", "\u3164", "\u115f", "\uffa0"];
   for (const ch of UNSAFE) assert.equal(sanitize("a" + ch + "b"), "a?b");
   assert.equal(sanitize("\u00e9 \u00fc \u4e2d\u00a0"), "\u00e9 \u00fc \u4e2d\u00a0");
   for (const ch of UNSAFE) {
@@ -289,6 +289,34 @@ test("unreadable included file exits 2 (R-SNP-2)", (t) => {
   const r = runSnapshot([inst, dest]);
   assert.equal(r.code, 2);
   assert.equal(fs.existsSync(dest), false);
+});
+
+test("unreadable directory exits 2, names it and leaves no destination (R-SNP-2)", (t) => {
+  if (unreadableSkip()) { t.skip("running as root or on Windows"); return; }
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  const dir = path.join(inst, "modules", "core");
+  fs.chmodSync(dir, 0o000);
+  try {
+    const r = runSnapshot([inst, dest]);
+    assert.equal(r.code, 2);
+    assert.equal(r.stdout, "");
+    assert.ok(r.stderr.startsWith("modules/core: cannot be read"), r.stderr);
+    assert.equal(fs.existsSync(dest), false);
+  } finally {
+    fs.chmodSync(dir, 0o755);
+  }
+});
+
+test("a non-regular root unbuilt.yaml is listed as skipped (R-SNP-7)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  if (!canSymlink(tmp)) { t.skip("symbolic links cannot be created here"); return; }
+  fs.renameSync(path.join(inst, "unbuilt.yaml"), path.join(tmp, "unbuilt.yaml"));
+  fs.symlinkSync(path.join(tmp, "unbuilt.yaml"), path.join(inst, "unbuilt.yaml"));
+  const r = runSnapshot([inst, path.join(tmp, "dest")]);
+  assert.equal(r.code, 1, r.stderr);
+  assert.ok(r.stdout.includes("skipped unbuilt.yaml (symlink)\n"), r.stdout);
+  assert.equal(fs.existsSync(path.join(tmp, "dest", "unbuilt.yaml")), false);
 });
 
 test("internal error exits 2 with the message and stack (R-SNP-4)", (t) => {

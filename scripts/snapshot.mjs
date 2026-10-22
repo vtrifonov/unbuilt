@@ -5,7 +5,7 @@ import { walkInstance, MAX_TEXT_BYTES } from "./lib/walk.mjs";
 
 export const USAGE = "usage: node scripts/snapshot.mjs <instance-dir> <dest-dir>\n       node scripts/snapshot.mjs --help\n";
 
-export const UNSAFE_RE = /[\p{Cc}\p{Cf}\u2028\u2029\ufe00-\ufe0f\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
+export const UNSAFE_RE = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u2028\u2029\ufe00-\ufe0f\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
 
 const MAX_TOTAL_BYTES = 67108864;
 const MAX_FILES = 10000;
