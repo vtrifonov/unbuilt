@@ -48,3 +48,11 @@ test("validate skill lists every rule (R-VAL-36)", () => {
   for (const r of RULES) assert.ok(body.includes("`" + r.name + "`"), r.name);
   assert.match(body, /exit code/i); assert.match(body, /warnings never fail CI/i);
 });
+test("extract skill carries the R-EXT-43 worked example verbatim", () => {
+  const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/extract/SKILL.md"), "utf8"));
+  assert.ok(body.includes("name: acmesync"), "draft name");
+  assert.ok(body.includes("acmesync-unbuilt"), "draft folder");
+  assert.ok(body.includes("name: ticket-sync"), "chosen name");
+  assert.ok(body.includes("ticket-sync-unbuilt"), "renamed folder");
+  assert.ok(body.includes("Syncs tickets from the issue tracker to the work tracker."), "rewritten summary");
+});
