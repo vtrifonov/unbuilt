@@ -96,10 +96,10 @@ export function parseScalar(raw, lineNo) {
 function rejectBare(v) {
   const c = v[0];
   if (FIRST_CHAR_FEATURE[c]) return `${FIRST_CHAR_FEATURE[c]} are not allowed`;
-  if (INDICATORS.has(c) || v === "-" || v.startsWith("- ")) {
+  if (INDICATORS.has(c) || /^-([ \t]|$)/.test(v)) {
     return `value "${v}" starts with the YAML indicator "${c}"`;
   }
-  if (v.includes(": ") || v.includes("\t#") || v.endsWith(":")) {
+  if (/:[ \t]/.test(v) || v.includes("\t#") || v.endsWith(":")) {
     return `value "${v}" contains ": " or ends in ":"`;
   }
   for (const [re, kind] of RESOLVED_AS) {
@@ -160,6 +160,7 @@ export function parse(text) {
 
   const handleItem = (indent, body, n) => {
     if (!list) return err(n, "list item outside a list");
+    list.sawItem = true;
     if (list.itemIndent === null) {
       if (indent !== 0 && indent !== 2) return err(n, "list items must be indented 0 or 2 spaces");
       list.itemIndent = indent;
@@ -168,7 +169,6 @@ export function parse(text) {
     } else if (indent < list.itemIndent) {
       return err(n, "inconsistent list indentation");
     }
-    list.sawItem = true;
     const itemBody = body === "-" ? "" : body.slice(2);
     if (/^[ \t]*(#.*)?$/.test(itemBody)) return err(n, "empty list item");
     if (itemBody[0] === " " || itemBody[0] === "\t") return err(n, 'exactly one space must follow "-"');
@@ -195,7 +195,8 @@ export function parse(text) {
 
   rows.forEach((line, idx) => {
     const n = idx + 1;
-    const lead = /^[ \t]*/.exec(line)[0];
+    if (line.includes("\r")) return err(n, "carriage return without line feed; use \\n or \\r\\n line endings");
+    const lead =/^[ \t]*/.exec(line)[0];
     if (lead.includes("\t")) return err(n, "tab in indentation; use spaces");
     if (/^ *$/.test(line) || /^ *#/.test(line)) return;
     if (/^(---|\.\.\.)( |$)/.test(line)) return err(n, "document markers (--- / ...) are not allowed");

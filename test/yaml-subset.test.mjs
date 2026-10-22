@@ -91,6 +91,7 @@ const listRejects = [
   ["list item outside a list", "a: 1\n- b\n", 2],
   ["continuation at the wrong column", "m:\n  - id: A\n   path: x\n", 3],
   ["scalar and map items mixed", "m:\n  - a\n  - id: B\n", 3],
+  ["first item misindented", "p:\n    - a\n", 2],
 ];
 for (const [name, input, line] of listRejects) {
   test(`rejects: ${name}`, () => {
@@ -198,6 +199,28 @@ for (const [name, value, feature] of valueRejects) {
     assert.match(r.errors[0].message, /quote this value$/);
   });
 }
+
+const tabIndicatorRejects = [
+  ["dash and tab in a list item", "p:\n  - -\tx\n", 2],
+  ["dash and tab", "k: -\tx\n", 1],
+  ["colon and tab", "k: a:\tb\n", 1],
+];
+for (const [name, input, line] of tabIndicatorRejects) {
+  test(`rejects bare value: ${name}`, () => {
+    const r = parse(input);
+    assert.equal(r.value, null);
+    assert.equal(r.errors[0].line, line);
+    assert.match(r.errors[0].message, new RegExp(`^line ${line}: `));
+    assert.match(r.errors[0].message, /; quote this value$/);
+  });
+}
+
+test("rejects: carriage return without line feed", () => {
+  const r = parse("k: a\r");
+  assert.equal(r.value, null);
+  assert.equal(r.errors[0].line, 1);
+  assert.equal(r.errors[0].message, "line 1: carriage return without line feed; use \\n or \\r\\n line endings");
+});
 
 test("rejects bare value in a list item", () => {
   const r = parse("p:\n  - yes\n");
