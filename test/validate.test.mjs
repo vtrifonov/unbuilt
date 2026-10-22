@@ -445,6 +445,26 @@ test("scenario coverage edge cases (rules 11–13)", (t) => {
   assert.ok(expected.result.warnings.some((f) => f.rule === "should-has-scenario" && f.line === 4 && f.message === "CORE-2 is a SHOULD but no scenario cites it (FORMAT.md §5)"));
 });
 
+test("a section citing a live id and an undeclared one reports only the undeclared citation (rule 11)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, "modules/core/scenarios.md", readIn(dir, "modules/core/scenarios.md").replace("Covers: CORE-1, INV-1", "Covers: CORE-1, INV-1, CORE-9"));
+  const { code, result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(code, 1);
+  assert.deepEqual(result.errors, [{ rule: "scenario-cites-id", file: "modules/core/scenarios.md", line: 5, message: "CORE-9 is cited but not declared (FORMAT.md §5)" }]);
+});
+test("root SPEC.md declares only INV ids; a missing module directory is one module-paths error and no module-files (rule 8, spec 13)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, "SPEC.md", readIn(dir, "SPEC.md").replace("- **INV-1** (MUST) Notes never leave the machine.", "- **INV-1** (MUST) Notes never leave the machine.\n- **CORE-3** (MUST) A note longer than the screen scrolls."));
+  const root = runJson([dir, "--json", "--today", "2026-10-22"]).result;
+  const fmt = root.errors.filter((f) => f.rule === "id-format");
+  assert.deepEqual(fmt.map((f) => [f.file, f.line]), [["SPEC.md", 14]], JSON.stringify(root.errors));
+  assert.equal(fmt[0].message, "CORE-3 is declared in SPEC.md but only INV ids are declared there (FORMAT.md §5)");
+  const missing = runFixture(t, "module-paths");
+  const paths = missing.result.errors.filter((f) => f.rule === "module-paths");
+  assert.equal(paths.length, 1, JSON.stringify(missing.result.errors));
+  assert.match(paths[0].message, /modules\/missing is not a directory/);
+  assert.deepEqual([...missing.result.errors, ...missing.result.warnings].filter((f) => f.rule === "module-files"), []);
+});
 test("an unterminated <!-- or a one-line ```code``` span does not hide a later uncovered MUST (amendment 8f)", (t) => {
   for (const marker of ["A note that starts with `<!--` is kept verbatim.", "```code``` spans are shown in a monospace font."]) {
     const dir = makeTempDir(t); copyMinimalValid(dir);
