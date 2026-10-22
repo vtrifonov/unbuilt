@@ -523,3 +523,57 @@ test("file-types unreadable file", { skip: isWin ? "no POSIX modes on Windows" :
   const r = runFixture(t, "file-types", { mutate: (d) => { writeIn(d, "secret.md", "x"); fs.chmodSync(path.join(d, "secret.md"), 0); } });
   assert.ok(r.result.errors.some((f) => f.rule === "file-types" && f.file === "secret.md" && f.message.includes("cannot be read")));
 });
+
+const RULE_NAMES = ["required-files", "module-files", "yaml-parse", "yaml-fields", "yaml-enums", "module-ids", "module-paths", "id-format", "id-unique", "id-retired-form", "scenario-cites-id", "must-has-scenario", "should-has-scenario", "substitution-files", "substitution-matrix", "evidence-dates", "redaction-required", "design-required", "leak-email", "leak-ipv4", "leak-hostname", "leak-home-path", "leak-secret", "budget-file-lines", "budget-total-words", "budget-image", "budget-module-count", "file-types"];
+test("RULES names and order (R-VAL-20)", () => {
+  assert.deepEqual(RULES.map((r) => r.name), RULE_NAMES);
+  for (const r of RULES) assert.equal(typeof r.fn, "function");
+});
+test("every rule has a fixture directory and nothing else is there (R-TST-8)", () => {
+  assert.deepEqual(fs.readdirSync(FIXTURES).filter((n) => n !== "minimal-valid").sort(), [...RULE_NAMES].sort());
+});
+const mixed = (d) => {
+  fs.rmSync(path.join(d, "constraints.md"));
+  fs.appendFileSync(path.join(d, "README.md"), "\nContact alice@widgets-intranet.com.\n");
+  fs.appendFileSync(path.join(d, "unbuilt.yaml"), "colour: red\n");
+  writeIn(d, "evidence/2025-01-10-api.md", "# Old API\nChecked: 2025-01-10\nExpires: 2025-07-10\n");
+  writeIn(d, "modules/core/scenarios.md", readIn(d, "modules/core/scenarios.md").replace("Covers: CORE-2", "Covers: CORE-1"));
+};
+const GOLDEN = [
+  "error    leak-email         README.md:11  email address al… found; replace it with a role word (FORMAT.md §7)",
+  "error    required-files     constraints.md  required file constraints.md is missing (FORMAT.md §3)",
+  "warning  evidence-dates     evidence/2025-01-10-api.md:3  expired on 2025-07-10; re-check before relying on it (FORMAT.md §4)",
+  "warning  should-has-scenario  modules/core/SPEC.md:4  CORE-2 is a SHOULD but no scenario cites it (FORMAT.md §5)",
+  "warning  yaml-fields        unbuilt.yaml:17  unknown key colour is ignored (FORMAT.md §3)",
+  "2 error(s), 3 warning(s)",
+].join("\n") + "\n";
+test("human output golden (R-VAL-5)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir); mixed(dir);
+  const r = runCli([dir, "--today", "2026-10-22"]);
+  assert.equal(r.code, 1); assert.equal(r.stdout, GOLDEN);
+});
+test("json sort order (R-VAL-6)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir); mixed(dir);
+  const { result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.deepEqual(result.errors.map((f) => [f.rule, f.file, f.line]), [["leak-email", "README.md", 11], ["required-files", "constraints.md", undefined]]);
+  assert.deepEqual(result.warnings.map((f) => f.rule), ["evidence-dates", "should-has-scenario", "yaml-fields"]);
+  assert.equal("line" in result.errors[1], false);
+});
+test("warnings-only run prints counts, not ok (R-VAL-5)", (t) => {
+  const r = runFixture(t, "should-has-scenario");
+  const h = runCli([r.dir, "--today", "2026-10-22"]);
+  assert.equal(h.code, 0); assert.match(h.stdout, /\n0 error\(s\), 1 warning\(s\)\n$/);
+});
+test("a finding without a line sorts before line findings in the same file (Review Focus 5)", (t) => {
+  // notes.md: 1,501 lines (budget-file-lines, no line) and an email on line 1 (leak-email, line 1).
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, "notes.md", "Contact alice@widgets-intranet.com.\n" + "w\n".repeat(1500));
+  const { result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  const notes = result.errors.filter((f) => f.file === "notes.md");
+  assert.deepEqual(notes.map((f) => [f.rule, f.line]), [["budget-file-lines", undefined], ["leak-email", 1]]);
+  assert.equal("line" in notes[0], false);
+  const h = runCli([dir, "--today", "2026-10-22"]);
+  const lines = h.stdout.split("\n").filter((l) => l.includes("notes.md"));
+  assert.match(lines[0], /^error    budget-file-lines  notes.md  /);
+  assert.match(lines[1], /^error    leak-email         notes.md:1  /);
+});
