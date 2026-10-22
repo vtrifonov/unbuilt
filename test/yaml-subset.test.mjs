@@ -222,6 +222,34 @@ test("rejects: carriage return without line feed", () => {
   assert.equal(r.errors[0].message, "line 1: carriage return without line feed; use \\n or \\r\\n line endings");
 });
 
+// Amendment 8d: characters a YAML 1.1 parser reads differently (line separators) or refuses (control characters).
+// Built from code points so no raw separator or BOM sits in this source file.
+const [LS, PS, NEL, ZWNBSP] = [0x2028, 0x2029, 0x85, 0xfeff].map((c) => String.fromCharCode(c));
+const specialRejects = [
+  ["U+2028 inside a list value", `original_stack:\n  - swift${LS}  - rust\n`, 2, "2028"],
+  ["U+0085 next line", `summary: hello${NEL}world\n`, 1, "0085"],
+  ["U+2029 paragraph separator", `a: 1\nsummary: x${PS}y\n`, 2, "2029"],
+  ["C0 U+0001", "summary: a\u0001b\n", 1, "0001"],
+  ["DEL U+007F", "summary: a\u007fb\n", 1, "007F"],
+  ["vertical tab U+000B", "key: x\u000b\n", 1, "000B"],
+  ["C1 U+009B inside quotes", 'summary: "a\u009bb"\n', 1, "009B"],
+  ["non-leading U+FEFF", `a: 1\nb: x${ZWNBSP}y\n`, 2, "FEFF"],
+  ["control character in a comment", "a: 1 # note\u0007\n", 1, "0007"],
+];
+for (const [name, input, line, hex] of specialRejects) {
+  test(`rejects special character: ${name}`, () => {
+    const r = parse(input);
+    assert.equal(r.value, null);
+    const special = r.errors.filter((e) => e.message.includes("special character"));
+    assert.deepEqual(special, [{ line, message: `line ${line}: special character U+${hex} is not allowed; quote-free YAML cannot carry it` }]);
+  });
+}
+test("accepts tab, a leading BOM and non-ASCII letters (amendment 8d)", () => {
+  const r = parse(`${ZWNBSP}name: clipjar\t# c\nsummary: Bücher für alle\n`);
+  assert.deepEqual(r.errors, []);
+  assert.deepEqual(r.value, { name: "clipjar", summary: "Bücher für alle" });
+});
+
 test("rejects bare value in a list item", () => {
   const r = parse("p:\n  - yes\n");
   assert.equal(r.errors[0].line, 2);

@@ -27,6 +27,10 @@ const FIRST_CHAR_FEATURE = {
 const INDICATORS = new Set(["?", ":", ",", "]", "}", "#", "'", '"', "@", "`"]);
 const MAP_ITEM_RE =/^[^ \t'"]*?:(?=[ \t]|$)/;
 const NESTING = "nesting deeper than a list of flat maps is not allowed";
+// C0 and C1 controls other than tab (CR is reported separately), DEL, U+2028 (Zl), U+2029 (Zp) and a BOM past
+// the start of the file: YAML 1.1 splits lines on some and refuses the rest (spec amendment 8d).
+const BOM = String.fromCharCode(0xfeff);
+const SPECIAL_RE = new RegExp(`[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f-\\x9f\\p{Zl}\\p{Zp}${BOM}]`, "u");
 
 function isBlankOrComment(rest) {
   return /^[ \t]*$/.test(rest) || /^[ \t]+#/.test(rest);
@@ -188,7 +192,7 @@ export function parse(text) {
     addMapEntry(itemBody, n);
   };
 
-  let src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  let src = text.startsWith(BOM) ? text.slice(1) : text;
   src = src.replace(/\r\n/g, "\n");
   const rows = src.split("\n");
   if (rows.length && rows[rows.length - 1] === "") rows.pop();
@@ -196,6 +200,11 @@ export function parse(text) {
   rows.forEach((line, idx) => {
     const n = idx + 1;
     if (line.includes("\r")) return err(n, "carriage return without line feed; use \\n or \\r\\n line endings");
+    const special = SPECIAL_RE.exec(line);
+    if (special) {
+      const hex = special[0].charCodeAt(0).toString(16).toUpperCase().padStart(4, "0");
+      return err(n, `special character U+${hex} is not allowed; quote-free YAML cannot carry it`);
+    }
     const lead =/^[ \t]*/.exec(line)[0];
     if (lead.includes("\t")) return err(n, "tab in indentation; use spaces");
     if (/^ *$/.test(line) || /^ *#/.test(line)) return;
