@@ -34,13 +34,18 @@ function codeSpans(line) {
 
 const isBlank = (line) => /^[ \t]*$/.test(line);
 
-// Spec amendment 8f (recheck 2): a `<!--` at line start (up to three spaces) is an HTML block that runs to the
-// next line containing `-->`; any other `<!--` opens a comment only if `-->` follows within its paragraph
-// (before the next blank line); a `<!--` inside a code span on its line is literal; unterminated is literal.
+// Lines that end a paragraph (amendment 8f wording, recheck 4): blank, fence opener, ATX heading, list-item marker.
+const endsParagraph = (line) =>
+  isBlank(line) || fenceOpener(line) !== null || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(line) || /^ {0,3}(?:[-*+]|[0-9]{1,9}[.)])[ \t]/.test(line);
+
+// Spec amendment 8f (recheck 2, wording recheck 4): a `<!--` at line start (up to three spaces) is an HTML block
+// that runs to the next line containing `-->`; any other `<!--` opens a comment only if `-->` follows within its
+// paragraph, which ends at the next blank line, fence opener, ATX heading or list-item marker; a `<!--` inside a
+// code span on its line is literal; unterminated is literal.
 function opensComment(lines, k, j, atLineStart) {
   if (lines[k].indexOf("-->", j + 4) >= 0) return true;
   for (let m = k + 1; m < lines.length; m++) {
-    if (!atLineStart && isBlank(lines[m])) return false;
+    if (!atLineStart && endsParagraph(lines[m])) return false;
     if (lines[m].includes("-->")) return true;
   }
   return false;

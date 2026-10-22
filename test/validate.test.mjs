@@ -121,13 +121,37 @@ test("blankCommentsAndFences scopes a mid-line <!-- to its paragraph (amendment 
   assert.deepEqual(ids("   <!-- one\n\n- **CORE-4** (MUST) hidden.\n--> tail\n" + decl + "\n"), [["CORE-3", 5]]);
   assert.equal(blankCommentsAndFences("<!-- a\n\nb --> c\n"), "\n\n c\n");
   // An inline comment closed within its own paragraph blanks, across lines too.
-  assert.deepEqual(ids("Intro <!-- hide\n- **CORE-4** (MUST) hidden.\nend --> tail\n\n" + decl + "\n"), [["CORE-3", 5]]);
+  assert.deepEqual(ids("Intro <!-- hide\n**CORE-4** (MUST) hidden.\nend --> tail\n\n" + decl + "\n"), [["CORE-3", 5]]);
+  // A list item ends the paragraph (recheck 4 wording), so it is not hidden by an earlier mid-line `<!--`.
+  assert.deepEqual(ids("Intro <!-- hide\n- **CORE-4** (MUST) shown.\nend --> tail\n\n" + decl + "\n"), [["CORE-4", 2], ["CORE-3", 5]]);
   assert.equal(blankCommentsAndFences("a <!-- b\nc --> d\n"), "a \n d\n");
   // A `<!--` inside a backtick code span on its line is literal, even with a `-->` later in the paragraph.
   assert.equal(blankCommentsAndFences("Type `<!--` to start. Close with --> later.\n"), "Type `<!--` to start. Close with --> later.\n");
   assert.equal(blankCommentsAndFences("``a `<!--` b`` <!-- c --> d\n"), "``a `<!--` b``  d\n");
   // An unmatched backtick run opens no code span, so the comment after it still blanks.
   assert.equal(blankCommentsAndFences("a ` <!-- b --> c\n"), "a `  c\n");
+});
+test("a mid-line <!-- ends its paragraph at a fence opener, ATX heading or list item (amendment 8f wording, recheck 4)", () => {
+  const decl = "- **CORE-3** (MUST) A note longer than the screen scrolls.";
+  const ids = (src) => findAttempts(blankCommentsAndFences(src), ["CORE"]).map((a) => [a.exact?.id, a.line]);
+  // r1: the `-->` sits inside a fence that interrupts the paragraph; the `<!--` is literal and the fence is still a fence.
+  const r1 = "Type <!-- to start a note, like this:\n```\nx -->\n```\n\n" + decl + "\n";
+  assert.deepEqual(ids(r1), [["CORE-3", 6]]);
+  assert.equal(blankCommentsAndFences(r1), "Type <!-- to start a note, like this:\n\n\n\n\n" + decl + "\n");
+  assert.equal(blankCommentsAndFences("a <!-- b\n~~~\nc -->\n~~~\nd\n"), "a <!-- b\n\n\n\nd\n");
+  // r2: a list item interrupts the paragraph, so its `-->` does not close the `<!--`.
+  assert.deepEqual(ids("Type <!-- to start a note.\n- **CORE-3** (MUST) Notes may hold --> too.\n"), [["CORE-3", 2]]);
+  for (const item of ["* x --> y", "+ x --> y", "1. x --> y", "12) x --> y", "   - x --> y"]) {
+    assert.equal(blankCommentsAndFences(`a <!-- b\n${item}\n`), `a <!-- b\n${item}\n`, item);
+  }
+  // r3: an ATX heading ends the paragraph, so a `-->` on the heading line is beyond it.
+  assert.equal(blankCommentsAndFences("Type <!-- to start a note.\n## Scrolling -->\n\n" + decl + "\n"), "Type <!-- to start a note.\n## Scrolling -->\n\n" + decl + "\n");
+  assert.equal(blankCommentsAndFences("a <!-- b\n#\nc -->\n"), "a <!-- b\n#\nc -->\n");
+  // Lines that only look similar do not end the paragraph.
+  assert.equal(blankCommentsAndFences("a <!-- b\n#tag -1 and 3.5 -->\nc\n"), "a \n\nc\n");
+  assert.equal(blankCommentsAndFences("a <!-- b\n-not a list -->\nc\n"), "a \n\nc\n");
+  // A line-start `<!--` is an HTML block and still runs past fences, headings and list items.
+  assert.equal(blankCommentsAndFences("<!-- a\n```\n## b\n- c -->\nd\n"), "\n\n\n\nd\n");
 });
 test("countLines and countWords (R-FMT-38)", () => {
   assert.equal(countLines(""), 0); assert.equal(countLines("a\nb\n"), 2); assert.equal(countLines("a\nb"), 2);
@@ -511,6 +535,21 @@ test("a later real comment does not close a mid-paragraph <!-- and hide an uncov
     assert.equal(j.code, 1, marker);
     assert.deepEqual(j.result.errors.map((f) => [f.rule, f.file, f.line]), [["must-has-scenario", "modules/core/SPEC.md", 8]], marker);
     assert.match(j.result.errors[0].message, /^CORE-3 is a MUST/);
+  }
+});
+test("a mid-line <!-- whose --> lies past a fence or list item does not hide an uncovered MUST (probes r1, r2)", (t) => {
+  const head = "# Core\n\n- **CORE-1** (MUST) A note is saved when the user presses the save key.\n- **CORE-2** (SHOULD) Saved notes are listed newest first.\n\n";
+  const cases = [
+    ["r1", head + "Type <!-- to start a note, like this:\n```\nx -->\n```\n\n- **CORE-3** (MUST) A note longer than the screen scrolls.\n", 11],
+    ["r2", head + "Type <!-- to start a note.\n- **CORE-3** (MUST) Notes may hold --> too.\n", 7],
+  ];
+  for (const [name, body, line] of cases) {
+    const dir = makeTempDir(t); copyMinimalValid(dir);
+    writeIn(dir, "modules/core/SPEC.md", body);
+    const j = runJson([dir, "--json", "--today", "2026-10-22"]);
+    assert.equal(j.code, 1, name);
+    assert.deepEqual(j.result.errors.map((f) => [f.rule, f.file, f.line]), [["must-has-scenario", "modules/core/SPEC.md", line]], name);
+    assert.match(j.result.errors[0].message, /^CORE-3 is a MUST/, name);
   }
 });
 

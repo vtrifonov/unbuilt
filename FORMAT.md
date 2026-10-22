@@ -71,7 +71,7 @@ Milestone 1 is a thin end-to-end slice the builder can see run. Later milestones
 
 ## 4. Optional files
 
-The validator checks the shape of these only when they are present.
+The validator checks their shape only when present.
 
 | File | Contract | Rule |
 |---|---|---|
@@ -105,7 +105,7 @@ Every MUST, module or invariant, is cited by at least one scenario (`must-has-sc
 
 A requirement derived without the author's confirmation carries `(inferred)` right after the modality: `- **CORE-2** (MUST) (inferred) Text.`
 
-Declarations and citations inside fenced code blocks and HTML comments are ignored; leak scanning still covers them. A line-start `<!--` (up to three spaces in) runs to the next line holding `-->`; any other `<!--` opens a comment only if `-->` follows before the next blank line. A `<!--` in a code span or with no later `-->` is text. Backtick fence info strings hold no backtick; closing fences hold only fence characters and whitespace.
+Declarations and citations inside fences and HTML comments are ignored; leak scanning still covers them. A line-start `<!--` (up to three spaces in) runs to the next line holding `-->`; any other `<!--` opens a comment only if `-->` follows before the next blank, fence, heading or list-item line. A `<!--` in a code span or with no later `-->` is text. Backtick fence info strings hold no backtick; closing fences hold only fence characters and whitespace.
 
 ## 6. Modality
 
