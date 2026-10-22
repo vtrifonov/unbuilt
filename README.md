@@ -41,7 +41,7 @@ my-tool-unbuilt/
 | **build** | an instance | a project directory | Builds one milestone at a time following `BUILD.md`, in the language and environment you choose. Records where it departs from the spec and why. |
 | **validate** | an instance | findings on stdout | Checks the instance against `FORMAT.md`: required files, YAML, requirement IDs, modality, scenario coverage, budgets and mechanical redaction. Never writes, never uses the network. |
 
-Extract and build are agent skills. Validate is also a plain script, so it runs in CI.
+Extract and build are agent skills. Validate is also a script that runs in CI.
 
 ```mermaid
 flowchart LR
@@ -52,7 +52,7 @@ flowchart LR
     B -->|build| E[web build]
 ```
 
-One instance, many builds. The code never leaves, and every builder picks their own stack.
+One instance, many builds. The code never leaves; builders pick their stacks.
 
 ## Install
 
@@ -65,7 +65,7 @@ claude plugin install unbuilt@unbuilt
 
 The skills are then `/unbuilt:extract`, `/unbuilt:build` and `/unbuilt:validate`.
 
-Other agents: paste [`prompts/extract.md`](prompts/extract.md), [`prompts/build.md`](prompts/build.md) or [`prompts/validate.md`](prompts/validate.md) into the agent and replace the placeholders in angle brackets with real paths. The prompts are generated from the skills and say the same things.
+Other agents: paste [`prompts/extract.md`](prompts/extract.md), [`prompts/build.md`](prompts/build.md) or [`prompts/validate.md`](prompts/validate.md) into the agent and replace the placeholders in angle brackets with real paths. The prompts are generated from the skills.
 
 ## Quick start
 
@@ -84,7 +84,8 @@ ok: clipjar passes unbuilt format 1
 - **Build the example:** run `/unbuilt:build` on `examples/clipjar` with an empty project directory.
 - **Extract your own:** run `/unbuilt:extract` on your project, answer the redaction gate, then run `node scripts/validate.mjs <output-dir>` until it prints `ok`.
 - **Start from scratch:** copy `template/`. It already passes the validator.
-- **Update after a code change:** run `/unbuilt:extract <source-dir> <instance-dir> since <tag>`. It reads only what changed, keeps every requirement ID and retires removed ones.
+- **Update after a code change:** run `/unbuilt:extract <source-dir> <instance-dir> since <tag>`. It reads only what changed and keeps requirement IDs stable.
+- **Update a build:** run `/unbuilt:build <instance-dir>` again in your project; it reports what changed.
 
 ## The example
 
@@ -126,7 +127,7 @@ Effort: M
 usage: node scripts/validate.mjs <instance-dir> [--json] [--today YYYY-MM-DD]
 ```
 
-Exit codes: 0 passes, 1 has errors, 2 could not read the directory. Warnings do not fail the run. A failing run looks like this:
+Exit codes: 0 passes, 1 has errors, 2 could not read the directory. Warnings do not fail the run. A failing run:
 
 ```
 error    leak-email         modules/paste/problem.md:9  email address op… found; replace it with a role word (FORMAT.md §7)

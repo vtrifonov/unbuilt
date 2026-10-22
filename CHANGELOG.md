@@ -27,3 +27,4 @@ Notes (deliberate spec interpretations, recorded here because the branch merges 
 - Prompt fallbacks in `prompts/` for agents that are not Claude Code.
 - A starting template and the `examples/clipjar` instance.
 - Extract update mode takes an optional `since <ref>`: it reads only the source files changed after that git revision, interviews only about the affected modules, and still runs the redaction gate over the whole instance.
+- Running `/unbuilt:build` again in a built project re-validates a snapshot of the instance, reports what changed with `scripts/diff.mjs`, and plans an update milestone for finished work. `scripts/snapshot.mjs` makes every copy of instance text, `PLAN.md` gains a `## Departures` section, and the project keeps the last approved instance text in `.unbuilt/baseline/`.
