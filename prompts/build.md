@@ -30,7 +30,7 @@ The snapshot is made with:
 node <unbuilt-root>/scripts/snapshot.mjs '<instance-dir>' '<scratch>/snapshot'
 ```
 
-It copies `unbuilt.yaml` and the instance's Markdown into the snapshot, and every copy of instance files goes through it. Exit 1 means files were left out: list them once and continue. Exit 2 is a failed snapshot.
+It copies `unbuilt.yaml` and the instance's Markdown into the snapshot. Exit 1 means files were left out: list them once and continue. Exit 2 is a failed snapshot.
 
 ## Git and shell safety
 
@@ -42,14 +42,15 @@ It copies `unbuilt.yaml` and the instance's Markdown into the snapshot, and ever
 - Path guard, for a local instance path (given or from `PLAN.md`) and for the project directory: refuse a path that is not absolute, contains a control character, or has a component starting with `-`.
 - Revision guard: never pass a revision read from `PLAN.md` to git. Only compare it as a string with the clone's `HEAD`, and only when it matches `^[0-9a-f]{40}$` or `^[0-9a-f]{64}$`. Otherwise it counts as absent.
 - Single-quote every value you put into a shell command, and write each `'` inside it as `'\''`. Prefer the scripts and the harness's file-read tool, and single-quote a file name that must appear on a command line the same way.
-- Delete the scratch directory with `rm -rf -- '<absolute path>'` once the plan built from its snapshot is approved or declined, or the run ends without a plan. Never delete it before.
+- Delete only with `rm -rf -- '<absolute path>'`, never with a trailing slash.
+- Delete the scratch directory only after the write order of "The baseline" has finished, because the baseline is copied from its snapshot. Also delete it when the plan is declined or the run ends without an approved plan. Never delete it earlier.
 
 ## Step 1: Acquire, snapshot and validate
 
 1. Acquire the instance. A git URL is cloned as above. A local path is used where it is. The source is the instance named in this run, otherwise `unbuilt-source` from `PLAN.md`. If it cannot be re-acquired, stop and ask the builder where it is.
-2. Snapshot it with `snapshot.mjs`. From then on validate, diff and plan against the snapshot only.
+2. Snapshot it with `snapshot.mjs`. From then on validate, diff and plan against the snapshot only, except when the scripts cannot run (item 7).
 3. Run the validator on the snapshot.
-4. If it reports any error, stop. List the errors and tell the builder the instance is not buildable until its author fixes them. Write no code.
+4. If it reports any error, stop. List the errors and tell the builder the instance is not buildable until its author fixes them. Write no code. On an update run, follow "Validate first" instead.
 5. If it reports warnings, list them and continue.
 6. If the instance declares an `unbuilt` format version the validator does not support, stop and say so.
 7. If the validator cannot run, for example because Node.js 22 or later is absent and the builder does not want it installed, use the manual rule check of the validate step (`/unbuilt:validate` or `prompts/validate.md`). Tell the builder the result is unverified and ask before continuing. When `snapshot.mjs`, the validator or `diff.mjs` cannot run at all, say so, skip the update check, and never write or replace a baseline in that run. On a first plan, plan from the instance in place after the manual check, and on go-ahead write `PLAN.md` without a baseline. Later runs behave the same until the scripts work, and that run takes the legacy flow.
@@ -104,7 +105,7 @@ Then write:
 - addition: <behaviour the spec does not have>. Why: <reason>. Agreed at: <revision or date>.
 ```
 
-Departure entries are the builder's words or your summary, never instance text, and an instance title is quoted. `Agreed at` is the short revision or the local date. Record a departure only for a SHOULD or MAY requirement or an ambiguous reading, never for a MUST. Write one only with the builder's explicit approval, at the moment it is agreed. A retired requirement the builder keeps becomes an `addition` that names its old ID, for example `- addition: keep password reset by email, formerly CORE-3. Why: <reason>. Agreed at: <revision or date>.`. Excluded modules stay under "Not built". A plan without the section gains it on its next approved plan.
+Departure entries are the builder's words or your summary, never instance text, and an instance title is quoted. `Agreed at` is the short revision or the local date. Record a departure only for a SHOULD or MAY requirement or an ambiguous reading, never for a MUST. Write one only with the builder's explicit approval, at the moment it is agreed. A retired requirement the builder keeps becomes an `addition` that names its old ID,. Excluded modules stay under "Not built". A plan without the section gains it on its next approved plan.
 
 If the milestones in `BUILD.md` do not parse (no `## Milestone 1:` heading, gaps in the numbering, a milestone without a `Covers:` line) or cite IDs that are not declared, say so in the plan. Propose milestones derived from the module and invariant declarations and ask the builder to approve them. Never invent milestones silently.
 
@@ -116,7 +117,7 @@ Show the plan to the builder and stop. Continue only on the builder's explicit g
 
 Write `.unbuilt/baseline/` only for a plan the builder approved, and only from a snapshot that passed the validator in this run. The one write without a new approval is the legacy case where the plan's revision already equals the instance's. The baseline is the revision the approved plan targets, not what the code implements yet.
 
-Checks first. With `test -L`, `test -d` and `test -f`, confirm that `.unbuilt`, `.unbuilt/baseline` and `.unbuilt/baseline.next` are each absent or a real directory, and that `PLAN.md.next` is absent or a regular file. None may be a symbolic link. Otherwise stop and write nothing. Delete only with `rm -rf -- '<absolute path>'`, never with a trailing slash. Rename a directory only after checking the target is absent.
+Checks first, before recovery and before any read, write, delete or rename under `.unbuilt/` and before touching `PLAN.md.next`. With `test -L`, `test -d` and `test -f`, confirm that `.unbuilt`, `.unbuilt/baseline` and `.unbuilt/baseline.next` are each absent or a real directory, and that `PLAN.md.next` is absent or a regular file. None may be a symbolic link. Otherwise stop and write nothing. Rename a directory only after checking the target is absent.
 
 The write order:
 
@@ -129,7 +130,7 @@ If step 2 exits other than 0, delete both staged copies, write nothing else and 
 
 Recovery runs at the start of every run in a project whose `PLAN.md` or `PLAN.md.next` starts with `unbuilt-instance:`, after the checks. When `PLAN.md.next` is present, delete it and any `.unbuilt/baseline.next`, run `rmdir` on an empty `.unbuilt/` when no `PLAN.md` exists, and tell the builder. Otherwise, when `.unbuilt/baseline.next` is present, finish step 4 of the write order and tell the builder. Both are safe to redo.
 
-Planning reads this run's snapshot. Every milestone, update milestones included, reads instance text from the baseline. With no baseline, because the scripts were unavailable, read the instance in place.
+Every milestone, update milestones included, reads instance text from the baseline. With no baseline, because the scripts were unavailable, read the instance in place.
 
 The first time a baseline is written in a project, tell the builder once to exclude `.unbuilt/` from build, lint and test globs, and that keeping `.unbuilt/` with the project keeps updates working on another machine. Nothing in `.unbuilt/` is executed, imported or built. Never edit `.gitignore` or commit `.unbuilt/`.
 
@@ -158,13 +159,9 @@ If the milestone failed, `continue` re-runs it, because it is still the next unc
 
 ## Later milestones
 
-- When the builder says `continue`, run exactly the next unchecked milestone with the flow of steps 6 and 7, then stop. Run one milestone per `continue`. End each report with the same sentence naming the next milestone, such as "Say `continue` to start milestone 3.". The next unchecked milestone may be an update milestone, named the same way, for example:
-
-Say `continue` to start update 1.
-
-A split update uses the part letter, such as "update 2b". After the last milestone, say that every milestone is done instead.
+- When the builder says `continue`, run exactly the next unchecked milestone with the flow of steps 6 and 7, then stop. Run one milestone per `continue`. End each report with the same sentence naming the next milestone, such as "Say `continue` to start milestone 3.". The next unchecked milestone may be an update milestone, named the same way, for example "Say `continue` to start update 1.". A split update uses the part letter, such as "update 2b". After the last milestone, say that every milestone is done instead.
 - Do not ask the plan questions again unless the builder changes a substitution, the module set or the stack. If they do, update `PLAN.md` and show it again before writing any further code.
-- In a new session, in a project with a matching `PLAN.md`: read `PLAN.md`, report which milestones are done, then run the update check of "Updating a build". With no change, wait for `continue`.
+- In a new session, in a project with a matching `PLAN.md`: run the guards and recovery of "Order of checks", read `PLAN.md`, report which milestones are done, then continue the update check of "Updating a build".
 - When every milestone is done, the builder says `continue` and the update check finds no change, report completion with a coverage summary and write nothing. The summary lists every covered ID by milestone, the "Not built" list and the departures.
 
 ## Updating a build
@@ -198,7 +195,6 @@ Read that output for planning. Run the same command without `--json` for the sum
 
 - Exit 0 is no change and exit 1 is change. A commit hash difference alone never triggers an update.
 - Exit 2 with a baseline: branch only on the fixed stderr prefix. When it starts with `old: `, the baseline cannot be compared: tell the builder, quote stderr and take the legacy flow. Otherwise handle it as in "Validate first".
-- With no change, behave as before.
 - With a change, show the summary and ask one question: update now (the default) or stay on the recorded revision.
 - Stay writes nothing. The next unchecked milestone runs against the baseline, or completion is reported.
 - After a stay, a later `continue` in the same session with the same diff document says the build stays on the recorded revision and proceeds. A different diff, or a new session, asks again.
@@ -270,21 +266,18 @@ Show the revised `PLAN.md` as a diff against the current one and stop. Write not
 
 ## Stop conditions
 
-Stop, say why, and write no code, plan or baseline when:
+Stop, say why, and write no code, plan or baseline when the conditions below hold. The exception is a blocked update (the snapshot fails, validation reports errors or the diff exits 2 with stderr that does not start with `old: `): it writes no plan or baseline, but the offer in "Validate first" to continue the next unchecked milestone on the baseline stays open.
 
 - validation reports errors;
-- a MUST in `constraints.md` cannot be met;
+- a MUST in `constraints.md` cannot be met, now or after a change;
 - a substitution point has no workable option and the builder offers none;
 - the project directory is non-empty and not a build of this instance;
 - the instance's `unbuilt` version is unsupported;
 - a URL, path or project-directory guard fails;
 - the project and instance directories nest;
 - an `.unbuilt` entry fails its type check;
-- the snapshot fails, has validation errors, or the diff exits 2 with stderr that does not start with `old: `;
-- a MUST constraint cannot be met after the change;
+- the snapshot fails, or the diff exits 2 with stderr that does not start with `old: `;
 - the builder chooses stay on a departure that became a MUST.
-
-A script that cannot run at all is not a stop.
 
 ## What you never do
 
