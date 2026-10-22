@@ -1,0 +1,15 @@
+{
+  "name": "unbuilt",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A format for sharing software as a buildable spec: contract, validator, template, example and agent skills.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "validate": "node scripts/validate.mjs"
+  }
+}
