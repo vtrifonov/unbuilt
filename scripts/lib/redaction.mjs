@@ -14,11 +14,20 @@ export function isHostAllowed(host, opts) {
   return hostAllowedNormalized(host, normalizeOpts(opts));
 }
 
-// Internal fast path: `o` must already come from normalizeOpts.
-function hostAllowedNormalized(host, o) {
-  const h = host.toLowerCase();
+function hostListed(h, o) {
   if (o.exactHosts.includes(h)) return true;
   return o.allowHosts.some((a) => h === a || h.endsWith("." + a));
+}
+
+// Internal fast path: `o` must already come from normalizeOpts. A non-ASCII host is also compared in its
+// punycode form, the form `new URL` gives a reference_impl host (amendment 8g).
+function hostAllowedNormalized(host, o) {
+  const h = host.toLowerCase();
+  if (hostListed(h, o)) return true;
+  if (!/[^\x00-\x7f]/.test(h)) return false;
+  let puny;
+  try { puny = new URL("http://" + h).hostname; } catch { return false; }
+  return puny !== h && hostListed(puny, o);
 }
 
 const overlaps = (a, b) => a.start < b.end && b.start < a.end;
@@ -137,13 +146,22 @@ const BARE_HOST_RE = new RegExp(`(?<![@\\w.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z
 const URL_HOST_RE = /(?<![A-Za-z0-9+.\-_])[a-z][a-z0-9+.-]*:\/\/([^/\s?#\[\]"'<>()`]+)/gi;
 const IPV4_FULL_RE = new RegExp(`^${IPV4_RE.source}$`);
 
+// Sentence punctuation and emphasis markers after a URL are not part of its authority (amendment 8g).
+// A backward scan, not a `[...]+$` regex, which would be quadratic on a long punctuation run.
+const AUTHORITY_TRAILERS = new Set([".", ",", ";", ":", "!", "?", "*", "_", "~"]);
+function stripTrailers(s) {
+  let end = s.length;
+  while (end > 0 && AUTHORITY_TRAILERS.has(s[end - 1])) end--;
+  return s.slice(0, end);
+}
+
 // URL authorities (userinfo@host:port): the host is the part after the last "@" with any ":port" stripped.
 // A userinfo carrying a non-placeholder password ("user:password") is kept so it can be reported as a secret.
 function urlAuthorities(text) {
   const out = [];
   for (const m of text.matchAll(URL_HOST_RE)) {
-    const authority = m[1];
-    const start = m.index + m[0].length - authority.length;
+    const start = m.index + m[0].length - m[1].length;
+    const authority = stripTrailers(m[1]);
     const at = authority.lastIndexOf("@");
     const hostPort = authority.slice(at + 1);
     const colon = hostPort.indexOf(":");

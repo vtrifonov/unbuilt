@@ -188,6 +188,24 @@ test("url host stops at quotes, brackets and parentheses", () => {
   assert.equal(h.length, 1);
   assert.equal(h[0].match, "build01.widgets-intranet.com");
 });
+test("url hosts drop trailing sentence punctuation and emphasis markers (amendment 8g)", () => {
+  for (const t of ["See https://github.com.", "Also **https://example.com** here", "and https://github.com, then", "(https://example.org).", "https://github.com:", "_https://github.com_ x", "https://github.com!?", "~~https://example.net~~"]) {
+    assert.deepEqual(scanText(t), [], t);
+  }
+  const h = scanText("Served from https://build01.widgets-intranet.com.");
+  assert.deepEqual(h.map((f) => [f.pattern, f.match, f.column]), [["hostname", "build01.widgets-intranet.com", 21]]);
+  assert.equal(maskText("Served from https://build01.widgets-intranet.com."), "Served from https://bu….");
+  const p = scanText("**https://grafana:3000/d/x**");
+  assert.deepEqual(p.map((f) => [f.pattern, f.match]), [["hostname", "grafana"]]);
+});
+test("allowed hosts match the punycode form of an IDN url host (amendment 8g)", () => {
+  const idn = "bücher-werkzeug.de";
+  const puny = new URL("http://" + idn).hostname;
+  assert.notEqual(puny, idn);
+  assert.deepEqual(scanText(`See https://${idn}/notes.`, { exactHosts: [puny] }), []);
+  assert.deepEqual(scanText(`See https://${idn}/notes.`, { exactHosts: [idn] }), []);
+  assert.equal(hits(`See https://${idn}/notes.`, "hostname").length, 1);
+});
 test("a token in url userinfo yields one secret finding", () => {
   const value = ["Ab12", "Cd34", "Ef56", "Gh78"].join("");
   const t = `https://x-access-token:${value}@github.com/o/r.git`;
@@ -208,6 +226,7 @@ test("leak scanning is linear: a 1 MB single-token run of each hot class scans u
     "ipv6 digit colon": run("1:", ".x"),
     "jwt body": "eyJ" + run("a", "."),
     "base64-ish": run("QUJD+/09"),
+    "url authority punctuation": "https://" + run(".,", "a"),
   };
   for (const [name, text] of Object.entries(cases)) {
     const t0 = performance.now();

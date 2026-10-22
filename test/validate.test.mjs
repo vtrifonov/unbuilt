@@ -463,6 +463,14 @@ test("reference_impl host is exact; public_hosts entries are exact (R-VAL-25, R-
   const broken = runFixture(t, "leak-email", { mutate: (d) => { pub(d, "public_hosts:\n  - docs.example-public.org\nplatforms: [x]\n"); writeIn(d, "README.md", "# minimal-valid\n\nSee docs.example-public.org.\n"); } });
   assert.ok(broken.result.errors.some((f) => f.rule === "leak-hostname"));
 });
+test("an IDN reference_impl with public origin is not reported as a leak (amendment 8g)", (t) => {
+  const { code, result } = runFixture(t, "leak-email", { mutate: (d) => {
+    writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("origin: extracted-from-private-implementation", "origin: extracted-from-public-implementation").replace("reference_impl: private", "reference_impl: https://bücher-werkzeug.de/notes"));
+    writeIn(d, "README.md", "# minimal-valid\n\nSee https://github.com. Also **https://example.com** and https://github.com, then (https://example.org).\n");
+  } });
+  assert.deepEqual(leakRules(result), []);
+  assert.equal(code, 0, JSON.stringify(result));
+});
 test("walk and parse interplay for leaks (R-VAL-12, R-VAL-16, R-VAL-28)", (t) => {
   const git = runFixture(t, "leak-email", { mutate: (d) => { writeIn(d, "README.md", "# minimal-valid\n\nclean\n"); fs.mkdirSync(path.join(d, ".git")); writeIn(d, ".git/x.md", "ops@widgets-intranet.com"); } });
   assert.deepEqual(leakRules(git.result), []);
