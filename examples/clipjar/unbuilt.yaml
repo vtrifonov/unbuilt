@@ -1,0 +1,34 @@
+unbuilt: 1
+name: clipjar
+summary: A keyboard-first clipboard history for the macOS menu bar, with search, pins and paste into the app you were using.
+origin: extracted-from-public-implementation
+reference_impl: https://github.com/vtrifonov/clipjar
+license: MIT
+has_ui: true
+platforms:
+  - macos
+original_stack:
+  - swift
+  - sqlite
+original_effort: M
+interview: none
+implementation_terms: "Tell me if you build it. Keep the paste-injection permission prompt honest."
+modules:
+  - id: CAPTURE
+    path: modules/capture
+    maturity: shipped
+  - id: HISTORY
+    path: modules/history
+    maturity: shipped
+  - id: PICKER
+    path: modules/picker
+    maturity: shipped
+  - id: PASTE
+    path: modules/paste
+    maturity: shipped
+  - id: SETTINGS
+    path: modules/settings
+    maturity: shipped
+substitutions:
+  - storage
+  - hotkeys
