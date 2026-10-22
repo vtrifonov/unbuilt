@@ -62,3 +62,16 @@ test("ci.yml shape (R-CI-1..6)", () => {
     .map((s) => y.indexOf(s));
   assert.ok(order[0] > 0 && order[0] < order[1] && order[1] < order[2]);
 });
+
+import { RULES, SUPPORTED_FORMAT_VERSION } from "../scripts/lib/rules.mjs";
+import { countWords } from "../scripts/lib/markdown.mjs";
+const FORMAT = fs.readFileSync(path.join(ROOT, "FORMAT.md"), "utf8");
+test("FORMAT.md names every rule, has the ten sections in order and the version line (R-FMT-1, R-FMT-2, R-FMT-4)", () => {
+  for (const r of RULES) assert.ok(FORMAT.includes("`" + r.name + "`"), r.name);
+  const titles = ["What an unbuilt repo is", "Version", "Required files", "Optional files", "Requirement IDs", "Modality", "Redaction rules", "Size budgets", "What builders are promised", "The YAML subset"];
+  let last = -1;
+  titles.forEach((t, i) => { const at = FORMAT.indexOf(`\n## ${i + 1}. ${t}\n`); assert.ok(at > last, t); last = at; });
+  const v = FORMAT.match(/^Version: (\d+)$/m); assert.ok(v); assert.equal(Number(v[1]), SUPPORTED_FORMAT_VERSION);
+  assert.ok(FORMAT.indexOf("Version: ") < FORMAT.indexOf("\n## 1. "));
+  assert.ok(countWords(FORMAT) <= 2500, "FORMAT.md over 2,500 words");
+});
