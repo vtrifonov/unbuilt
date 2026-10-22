@@ -414,3 +414,67 @@ test("malformed module entries are ignored (Review Focus 5)", (t) => {
   const r = diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", CORE_MATURITY, `${CORE_MATURITY}  - id: 7\n    path: modules/core\n    maturity: shipped\n  - id: CORE\n    path: modules/other\n    maturity: sketched\n`));
   assert.equal(r.code, 0, r.stderr);
 });
+
+const SUBS_COMMENT = "# substitutions: list of kebab-case names, each needs substitutions/<name>.md\n";
+function addSubs(dir, names, body = "Contract text.\n") {
+  edit(dir, "unbuilt.yaml", SUBS_COMMENT, "substitutions:\n" + names.map((n) => `  - ${n}\n`).join(""));
+  writeIn(dir, "substitutions/README.md", "# Substitutions\n\n| Module | storage |\n|---|---|\n| CORE | required |\n");
+  for (const n of names) writeIn(dir, `substitutions/${n}.md`, `# ${n}\n\n${body}`);
+}
+const noChange = { number: 1, covers_added: [], covers_removed: [], title_changed: false };
+
+test("substitutions added and changed (R-DIF-35)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    addSubs(oldDir, ["storage"]);
+    addSubs(newDir, ["storage", "clipboard-api"]);
+    edit(newDir, "substitutions/storage.md", "Contract text.", "New contract text.");
+  });
+  assert.deepEqual(r.json.substitutions, { added: ["clipboard-api"], removed: [], changed: ["storage"] });
+});
+
+test("substitution removed (R-DIF-35)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    addSubs(oldDir, ["legacy", "storage"]);
+    addSubs(newDir, ["storage"]);
+  });
+  assert.deepEqual(r.json.substitutions.removed, ["legacy"]);
+  assert.deepEqual(r.json.substitutions.changed, []);
+});
+
+test("milestone covers changed (R-DIF-36, R-DIF-37)", (t) => {
+  const r = diffJson(t, ({ newDir }) => {
+    append(newDir, CORE, "- **CORE-3** (MAY) Notes can be pinned.\n");
+    edit(newDir, "BUILD.md", "Covers: CORE-1, CORE-2, INV-1", "Covers: CORE-1, CORE-2, CORE-3, INV-1");
+  });
+  assert.deepEqual(r.json.milestones.changed, [{ number: 1, covers_added: ["CORE-3"], covers_removed: [], title_changed: false }]);
+});
+
+test("milestone text only (R-DIF-37)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, "BUILD.md", "Done when: a note typed", "Done when: a note entered"));
+  assert.deepEqual(r.json.milestones.changed, [noChange]);
+});
+
+test("milestone title changed (R-DIF-37)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, "BUILD.md", "## Milestone 1: Capture and list a note", "## Milestone 1: Capture a note"));
+  assert.equal(r.json.milestones.changed[0].title_changed, true);
+  assert.deepEqual(r.json.milestones.changed[0].covers_added, []);
+  assert.deepEqual(r.json.milestones.changed[0].covers_removed, []);
+});
+
+test("milestone comment only (R-DIF-37)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, "BUILD.md", "Covers: requirement IDs. Done when", "Covers: the requirement IDs. Done when"));
+  assert.deepEqual(r.json.milestones.changed, [noChange]);
+});
+
+test("milestone added (R-DIF-37, plan decision 10)", (t) => {
+  const r = diffJson(t, ({ newDir }) => append(newDir, "BUILD.md", "\n## Milestone 2: List notes\n\nCovers: CORE-2\nDone when: the list shows newest first.\nEffort: S\n"));
+  assert.deepEqual(r.json.milestones, { added: [{ number: 2, title: "List notes" }], removed: [], changed: [] });
+});
+
+test("a repeated milestone number keeps the first (R-DIF-36)", (t) => {
+  const r = diffJson(t, ({ oldDir, newDir }) => {
+    for (const d of [oldDir, newDir]) append(d, "BUILD.md", "\n## Milestone 1: Duplicate\n\nCovers: CORE-2\n");
+    edit(newDir, "BUILD.md", "Covers: CORE-2\n", "Covers: INV-1\n");
+  });
+  assert.deepEqual(r.json.milestones, { added: [], removed: [], changed: [] });
+});

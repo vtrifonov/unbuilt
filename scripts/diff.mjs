@@ -159,6 +159,55 @@ function compareModules(oldSide, newSide, out) {
   for (const list of Object.values(out)) list.sort((a, b) => byCodeUnit(a.id, b.id));
 }
 
+function compareSubstitutions(oldSide, newSide, out) {
+  const oldSet = new Set(oldSide.substitutions);
+  const newSet = new Set(newSide.substitutions);
+  for (const n of oldSet) {
+    if (!newSet.has(n)) out.removed.push(n);
+    else if (oldSide.text.get(`substitutions/${n}.md`) !== newSide.text.get(`substitutions/${n}.md`)) out.changed.push(n);
+  }
+  for (const n of newSet) if (!oldSet.has(n)) out.added.push(n);
+  for (const list of Object.values(out)) list.sort(byCodeUnit);
+}
+
+export function milestones(side) {
+  const byNumber = new Map();
+  const claimed = new Set();
+  const raw = (side.text.get("BUILD.md") ?? "").split("\n");
+  const blanked = blankCommentsAndFences(side.text.get("BUILD.md") ?? "").split("\n");
+  for (let i = 0; i < blanked.length; i++) {
+    const m = /^## Milestone ([1-9][0-9]*): (.+)$/.exec(blanked[i]);
+    if (!m) continue;
+    let end = i + 1;
+    while (end < blanked.length && !/^## /.test(blanked[end])) end++;
+    const number = Number(m[1]);
+    if (!byNumber.has(number)) {
+      const coversLine = blanked.slice(i + 1, end).find((l) => /^Covers:/.test(l)) ?? "";
+      const covers = [...new Set(findCitations(coversLine, side.prefixes).map((c) => c.id))].sort(compareIds);
+      let lines = raw.slice(i, end);
+      while (lines.length > 0 && /^[ \t]*$/.test(lines[lines.length - 1])) lines = lines.slice(0, -1);
+      byNumber.set(number, { title: m[2], covers, raw: lines.join("\n") });
+      for (let k = i; k < end; k++) claimed.add(k);
+    }
+    i = end - 1;
+  }
+  return { byNumber, claimed };
+}
+
+function compareMilestones(oldS, newS, out) {
+  for (const [number, o] of oldS.byNumber) {
+    const n = newS.byNumber.get(number);
+    if (!n) out.removed.push({ number, title: o.title });
+    else if (o.raw !== n.raw) {
+      const entry = { number, covers_added: n.covers.filter((c) => !o.covers.includes(c)), covers_removed: o.covers.filter((c) => !n.covers.includes(c)), title_changed: o.title !== n.title };
+      Object.defineProperty(entry, "title", { value: n.title, enumerable: false });
+      out.changed.push(entry);
+    }
+  }
+  for (const [number, n] of newS.byNumber) if (!oldS.byNumber.has(number)) out.added.push({ number, title: n.title });
+  for (const list of Object.values(out)) list.sort((a, b) => a.number - b.number);
+}
+
 function emptyResult(oldMeta, newMeta) {
   const label = (m) => ({ name: typeof m?.name === "string" ? m.name : null, unbuilt: typeof m?.unbuilt === "number" ? m.unbuilt : null });
   const result = { changed: false, old: label(oldMeta), new: label(newMeta) };
@@ -173,6 +222,8 @@ export function diffInstances(oldDir, newDir) {
   compareRequirements(declarations(oldSide), declarations(newSide), result.requirements);
   compareScenarios(scenarios(oldSide), scenarios(newSide), result.scenarios);
   compareModules(oldSide, newSide, result.modules);
+  compareSubstitutions(oldSide, newSide, result.substitutions);
+  compareMilestones(milestones(oldSide), milestones(newSide), result.milestones);
   result.changed = Object.keys(LISTS).some((g) => Object.values(result[g]).some((l) => l.length > 0));
   return result;
 }
