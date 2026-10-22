@@ -55,7 +55,7 @@ function loadSide(root, side) {
       for (const item of meta.modules) {
         if (!isObject(item) || typeof item.id !== "string" || seen.has(item.id)) continue;
         seen.add(item.id);
-        modules.push({ id: item.id, path: modulePath(item.path, dirs), maturity: item.maturity });
+        modules.push({ id: item.id, path: modulePath(item.path, dirs), rawPath: item.path, maturity: item.maturity });
       }
     }
     const substitutions = isObject(meta) && Array.isArray(meta.substitutions) ? meta.substitutions.filter((s) => typeof s === "string") : [];
@@ -208,6 +208,66 @@ function compareMilestones(oldS, newS, out) {
   for (const list of Object.values(out)) list.sort((a, b) => a.number - b.number);
 }
 
+function withoutLines(text, drop, offset) {
+  return text.split("\n").filter((_, i) => !drop.has(i + offset)).join("\n");
+}
+
+function compareFiles(o, n, ctx, out) {
+  const oldBy = new Map(o.modules.map((m) => [m.id, m]));
+  const newBy = new Map(n.modules.map((m) => [m.id, m]));
+  const dirPrefixes = [];
+  for (const [side, other] of [[o, newBy], [n, oldBy]]) {
+    for (const m of side.modules) if (m.path !== null && !other.has(m.id)) dirPrefixes.push(`${m.path}/`);
+  }
+  const subs = new Set([...o.substitutions, ...n.substitutions].map((s) => `substitutions/${s}.md`));
+  const accountedOn = (side, otherBy) => {
+    const set = new Set(["SPEC.md", "BUILD.md", "unbuilt.yaml", ...subs]);
+    for (const m of side.modules) {
+      if (m.path === null) continue;
+      set.add(`${m.path}/SPEC.md`);
+      set.add(`${m.path}/scenarios.md`);
+      if (otherBy.get(m.id)?.path != null) set.add(`${m.path}/problem.md`);
+    }
+    return (p) => set.has(p) || dirPrefixes.some((x) => p.startsWith(x));
+  };
+  const oldAccounted = accountedOn(o, newBy);
+  const newAccounted = accountedOn(n, oldBy);
+  const none = new Set();
+  const residual = (side, file, drop, offset) => (side.text.has(file) ? withoutLines(side.text.get(file), drop ?? none, offset) : null);
+  const found = { changed: new Set(), added: new Set(), removed: new Set() };
+  const compare = (oldPath, newPath, oldRes, newRes) => {
+    if ((oldRes ?? "") === (newRes ?? "")) return;
+    if (oldRes !== null && newRes !== null) found.changed.add(newPath);
+    else if (newRes !== null) found.added.add(newPath);
+    else found.removed.add(oldPath);
+  };
+  compare("SPEC.md", "SPEC.md", residual(o, "SPEC.md", ctx.oldDecl.lines.get("SPEC.md"), 1), residual(n, "SPEC.md", ctx.newDecl.lines.get("SPEC.md"), 1));
+  compare("BUILD.md", "BUILD.md", residual(o, "BUILD.md", ctx.oldMs.claimed, 0), residual(n, "BUILD.md", ctx.newMs.claimed, 0));
+  for (const [id, om] of oldBy) {
+    const nm = newBy.get(id);
+    if (!nm || om.path === null || nm.path === null) continue;
+    const [op, np] = [`${om.path}/`, `${nm.path}/`];
+    compare(`${op}SPEC.md`, `${np}SPEC.md`, residual(o, `${op}SPEC.md`, ctx.oldDecl.lines.get(`${op}SPEC.md`), 1), residual(n, `${np}SPEC.md`, ctx.newDecl.lines.get(`${np}SPEC.md`), 1));
+    compare(`${op}scenarios.md`, `${np}scenarios.md`, ctx.oldScen.preamble.get(`${op}scenarios.md`) ?? null, ctx.newScen.preamble.get(`${np}scenarios.md`) ?? null);
+    compare(`${op}problem.md`, `${np}problem.md`, residual(o, `${op}problem.md`, none, 0), residual(n, `${np}problem.md`, none, 0));
+  }
+  const rawPath = (m) => (typeof m.rawPath === "string" ? m.rawPath.replace(/\/+$/, "") : JSON.stringify(m.rawPath));
+  const keys = new Set([...Object.keys(o.meta ?? {}), ...Object.keys(n.meta ?? {})]);
+  keys.delete("modules");
+  keys.delete("substitutions");
+  const metaChanged = [...keys].some((k) => JSON.stringify(o.meta?.[k]) !== JSON.stringify(n.meta?.[k]));
+  if (metaChanged || [...oldBy].some(([id, m]) => newBy.has(id) && rawPath(m) !== rawPath(newBy.get(id)))) found.changed.add("unbuilt.yaml");
+  const oldOnly = [...o.text.keys()].filter((p) => !oldAccounted(p));
+  const newOnly = new Set([...n.text.keys()].filter((p) => !newAccounted(p)));
+  for (const p of oldOnly) {
+    if (!newOnly.has(p)) found.removed.add(p);
+    else if (o.text.get(p) !== n.text.get(p)) found.changed.add(p);
+  }
+  const oldOnlySet = new Set(oldOnly);
+  for (const p of newOnly) if (!oldOnlySet.has(p)) found.added.add(p);
+  for (const k of Object.keys(found)) out[k] = [...found[k]].sort(byCodeUnit);
+}
+
 function emptyResult(oldMeta, newMeta) {
   const label = (m) => ({ name: typeof m?.name === "string" ? m.name : null, unbuilt: typeof m?.unbuilt === "number" ? m.unbuilt : null });
   const result = { changed: false, old: label(oldMeta), new: label(newMeta) };
@@ -219,11 +279,13 @@ export function diffInstances(oldDir, newDir) {
   const oldSide = loadSide(path.resolve(oldDir), "old");
   const newSide = loadSide(path.resolve(newDir), "new");
   const result = emptyResult(oldSide.meta, newSide.meta);
-  compareRequirements(declarations(oldSide), declarations(newSide), result.requirements);
-  compareScenarios(scenarios(oldSide), scenarios(newSide), result.scenarios);
+  const ctx = { oldDecl: declarations(oldSide), newDecl: declarations(newSide), oldScen: scenarios(oldSide), newScen: scenarios(newSide), oldMs: milestones(oldSide), newMs: milestones(newSide) };
+  compareRequirements(ctx.oldDecl, ctx.newDecl, result.requirements);
+  compareScenarios(ctx.oldScen, ctx.newScen, result.scenarios);
   compareModules(oldSide, newSide, result.modules);
   compareSubstitutions(oldSide, newSide, result.substitutions);
-  compareMilestones(milestones(oldSide), milestones(newSide), result.milestones);
+  compareMilestones(ctx.oldMs, ctx.newMs, result.milestones);
+  compareFiles(oldSide, newSide, ctx, result.files);
   result.changed = Object.keys(LISTS).some((g) => Object.values(result[g]).some((l) => l.length > 0));
   return result;
 }

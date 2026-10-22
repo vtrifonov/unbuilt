@@ -293,6 +293,7 @@ test("an ID moved between files unchanged is not reported (R-DIF-27)", (t) => {
     edit(newDir, "SPEC.md", INV1, `${INV1}${line}\n`);
   });
   reqEmpty(r.json);
+  for (const k of LISTS.files) assert.deepEqual(r.json.files[k], [], k);
 });
 
 test("invariant added (R-DIF-24)", (t) => {
@@ -304,6 +305,7 @@ test("fenced and commented declarations are ignored (R-DIF-24)", (t) => {
   const fence = "`".repeat(3);
   const r = diffJson(t, ({ newDir }) => append(newDir, CORE, `${fence}\n- **CORE-9** (MUST) Hidden.\n${fence}\n<!--\n- **CORE-9** (MUST) Hidden.\n-->\n`));
   reqEmpty(r.json);
+  assert.deepEqual(r.json.files.changed, [CORE]);
 });
 
 test("first declaration wins (R-DIF-26)", (t) => {
@@ -368,6 +370,7 @@ test("module added (R-DIF-34)", (t) => {
   assert.deepEqual(r.json.modules.added, [{ id: "SYNC", maturity: "sketched" }]);
   assert.ok(r.json.requirements.added.map((e) => e.id).includes("SYNC-1"));
   assert.deepEqual(r.json.scenarios.added, [{ module: "SYNC", title: "Sync now", cites: ["SYNC-1"] }]);
+  for (const k of LISTS.files) assert.ok(!r.json.files[k].some((f) => f.startsWith("modules/sync/")), k);
 });
 
 test("module removed (R-DIF-34)", (t) => {
@@ -389,6 +392,7 @@ test("maturity change (R-DIF-34)", (t) => {
   const r = diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", "maturity: shipped #", "maturity: partial #"));
   assert.equal(r.code, 1);
   assert.deepEqual(r.json.modules.maturity, [{ id: "CORE", from: "shipped", to: "partial" }]);
+  for (const k of LISTS.files) assert.ok(!r.json.files[k].includes("unbuilt.yaml"), k);
 });
 
 test("module path with a trailing slash (R-DIF-23)", (t) => {
@@ -398,6 +402,7 @@ test("module path with a trailing slash (R-DIF-23)", (t) => {
   });
   assert.deepEqual(r.json.requirements.modality, [{ id: "CORE-2", from: "SHOULD", to: "MUST" }]);
   reqEmpty(r.json, ["modality"]);
+  for (const k of LISTS.files) assert.ok(!r.json.files[k].includes(CORE), k);
 });
 
 test("a module path never escapes the side (R-DIF-23)", (t) => {
@@ -442,6 +447,7 @@ test("substitutions added and changed (R-DIF-35)", (t) => {
     edit(newDir, "substitutions/storage.md", "Contract text.", "New contract text.");
   });
   assert.deepEqual(r.json.substitutions, { added: ["clipboard-api"], removed: [], changed: ["storage"] });
+  for (const k of LISTS.files) assert.ok(!r.json.files[k].some((f) => f.startsWith("substitutions/")), k);
 });
 
 test("substitution removed (R-DIF-35)", (t) => {
@@ -476,6 +482,7 @@ test("milestone title changed (R-DIF-37)", (t) => {
 test("milestone comment only (R-DIF-37)", (t) => {
   const r = diffJson(t, ({ newDir }) => edit(newDir, "BUILD.md", "Covers: requirement IDs. Done when", "Covers: the requirement IDs. Done when"));
   assert.deepEqual(r.json.milestones.changed, [noChange]);
+  for (const k of LISTS.files) assert.ok(!r.json.files[k].includes("BUILD.md"), k);
 });
 
 test("milestone added (R-DIF-37, plan decision 10)", (t) => {
@@ -489,4 +496,119 @@ test("a repeated milestone number keeps the first (R-DIF-36)", (t) => {
     edit(newDir, "BUILD.md", "Covers: CORE-2\n", "Covers: INV-1\n");
   });
   assert.deepEqual(r.json.milestones, { added: [], removed: [], changed: [] });
+  assert.deepEqual(r.json.files.changed, ["BUILD.md"]);
+});
+
+const proseEdit = ({ newDir }) => {
+  edit(newDir, "constraints.md", "Notes MUST be stored on the local disk only.", "Notes MUST be stored on the local disk and nowhere else.");
+  writeIn(newDir, "decisions/keep-local.md", "# Keep local\n");
+};
+const moveCore = (c) => {
+  fs.renameSync(path.join(c.newDir, "modules", "core"), path.join(c.newDir, "modules", "notes"));
+  edit(c.newDir, "unbuilt.yaml", "path: modules/core #", "path: modules/notes #");
+};
+
+test("declaration-only SPEC change is not a file change (R-DIF-40)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE, "A note is saved when", "A note is stored when"));
+  assert.equal(r.code, 1);
+  for (const k of LISTS.files) assert.ok(!r.json.files[k].includes(CORE), k);
+});
+
+test("prose file changed and added (R-DIF-38)", (t) => {
+  const r = diffJson(t, proseEdit);
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.files, { changed: ["constraints.md"], added: ["decisions/keep-local.md"], removed: [] });
+});
+
+test("module path moved (R-DIF-41, R-DIF-43)", (t) => {
+  const r = diffJson(t, moveCore);
+  assert.equal(r.code, 1, r.stderr);
+  reqEmpty(r.json);
+  assert.deepEqual(r.json.scenarios, { added: [], removed: [], changed: [] });
+  assert.deepEqual(r.json.files, { changed: ["unbuilt.yaml"], added: [], removed: [] });
+});
+
+test("problem.md compared by module ID (R-DIF-41)", (t) => {
+  const r = diffJson(t, (c) => {
+    moveCore(c);
+    edit(c.newDir, "modules/notes/problem.md", "Thoughts fade", "Ideas fade");
+  });
+  assert.deepEqual(r.json.files, { changed: ["modules/notes/problem.md", "unbuilt.yaml"], added: [], removed: [] });
+});
+
+test("scenarios.md preamble change is a file change (R-DIF-40)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, CORE_SCEN, "# Scenarios\n", "# Scenarios of core\n"));
+  assert.equal(r.code, 1);
+  assert.deepEqual(r.json.files, { changed: [CORE_SCEN], added: [], removed: [] });
+  assert.deepEqual(r.json.scenarios, { added: [], removed: [], changed: [] });
+});
+
+test("symlinked file reads as removed (R-DIF-19)", (t) => {
+  if (!canSymlink(makeTempDir(t))) { t.skip("no symlink support"); return; }
+  const r = diffJson(t, ({ tmp, newDir }) => {
+    writeIn(tmp, "readme.md", "LINK-TARGET-TEXT\n");
+    fs.rmSync(path.join(newDir, "README.md"));
+    fs.symlinkSync(path.join(tmp, "readme.md"), path.join(newDir, "README.md"));
+  });
+  assert.deepEqual(r.json.files, { changed: [], added: [], removed: ["README.md"] });
+  assert.ok(!r.stdout.includes("LINK-TARGET-TEXT"));
+  assert.ok(!runDiff([r.oldDir, r.newDir]).stdout.includes("LINK-TARGET-TEXT"));
+});
+
+test("CRLF and BOM only is no change (R-DIF-22)", (t) => {
+  const r = diffJson(t, ({ newDir }) => {
+    for (const [rel] of tree(newDir)) {
+      if (rel.endsWith(".md") || rel === "unbuilt.yaml") writeIn(newDir, rel, readIn(newDir, rel).replace(/\n/g, "\r\n"));
+    }
+    writeIn(newDir, "SPEC.md", "\ufeff" + readIn(newDir, "SPEC.md"));
+  });
+  assert.equal(r.code, 0, r.stderr);
+});
+
+test("unbuilt.yaml key order is not a change (Review Focus 2, R-DIF-43)", (t) => {
+  const r = diffJson(t, ({ newDir }) => {
+    const lines = readIn(newDir, "unbuilt.yaml").split("\n");
+    const a = lines.findIndex((l) => l.startsWith("license:"));
+    const b = lines.findIndex((l) => l.startsWith("has_ui:"));
+    [lines[a], lines[b]] = [lines[b], lines[a]];
+    writeIn(newDir, "unbuilt.yaml", lines.join("\n"));
+  });
+  assert.equal(r.code, 0, r.stderr);
+});
+
+test("unbuilt.yaml value change is a file change (R-DIF-43)", (t) => {
+  const r = diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", "summary: Captures a short note", "summary: Captures one short note"));
+  assert.deepEqual(r.json.files.changed, ["unbuilt.yaml"]);
+});
+
+test("an accounted file missing on one side (Review Focus 3)", (t) => {
+  const r = diffJson(t, ({ newDir }) => fs.unlinkSync(path.join(newDir, "BUILD.md")));
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(r.json.milestones.removed, [{ number: 1, title: "Capture and list a note" }]);
+  assert.deepEqual(r.json.files.removed, ["BUILD.md"]);
+});
+
+test("module directory prefix does not swallow siblings (Review Focus 4, R-DIF-39)", (t) => {
+  const r = diffJson(t, ({ newDir }) => {
+    addSync(newDir);
+    writeIn(newDir, "modules/sync2/notes.md", "# Notes\n");
+  });
+  assert.deepEqual(r.json.files.added, ["modules/sync2/notes.md"]);
+});
+
+test("a module path invalid on one side only (R-DIF-23, R-DIF-39, plan decision 4)", (t) => {
+  const r = diffJson(t, ({ oldDir }) => edit(oldDir, "unbuilt.yaml", "path: modules/core #", "path: ../outside #"));
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(r.json.files, { changed: ["unbuilt.yaml"], added: [], removed: [CORE, CORE_SCEN] });
+  assert.deepEqual(r.json.requirements.added.map((e) => e.id), ["CORE-1", "CORE-2"]);
+  assert.ok(r.json.scenarios.added.length > 0);
+});
+
+test("writes nothing (R-DIF-6)", (t) => {
+  const c = sides(t);
+  proseEdit(c);
+  const before = [tree(c.oldDir), tree(c.newDir)];
+  runDiff([c.oldDir, c.newDir]);
+  runDiff([c.oldDir, c.newDir, "--json"]);
+  assert.deepEqual([tree(c.oldDir), tree(c.newDir)], before);
 });
