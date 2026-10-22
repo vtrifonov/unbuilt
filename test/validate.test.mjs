@@ -489,6 +489,23 @@ test("scenario citations are linear in the number of sections: 20,000 headings b
   assert.ok(ms < 2000, `${ms.toFixed(0)} ms`);
   assert.ok(ctx.scenarios.length > 20000);
 });
+test("file and directory names are leak-scanned with no line, and the file column is masked (amendment 8a)", (t) => {
+  const email = ["alice", "widgets-intranet.com"].join("@");
+  const host = ["build01", "widgets-intranet", "com"].join(".");
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, `notes/${email}.md`, "# Notes\n\nclean\n");
+  writeIn(dir, `modules/${host}/x.md`, "# X\n\nclean\n");
+  writeIn(dir, `design/${host}.png.txt`, "clean\n");
+  const j = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(j.code, 1);
+  const leaks = leakRules(j.result).map((f) => [f.rule, f.file, "line" in f]);
+  assert.deepEqual(leaks, [["leak-hostname", "design/bu….png.txt", false], ["leak-hostname", "modules/bu…", false], ["leak-email", "notes/al…", false]].sort((a, b) => (a[1] < b[1] ? -1 : 1)));
+  const h = runCli([dir, "--today", "2026-10-22"]);
+  for (const out of [j.stdout, h.stdout]) {
+    assert.ok(!out.includes(email) && !out.includes(host), out);
+  }
+  assert.ok(h.stdout.includes("modules/bu…"), h.stdout);
+});
 test("rule gating on YAML failure keeps the leak rules running (R-VAL-14)", (t) => {
   const { result } = runFixture(t, "yaml-parse", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "\nContact alice@widgets-intranet.com.\n") });
   const rules = new Set([...result.errors, ...result.warnings].map((f) => f.rule));

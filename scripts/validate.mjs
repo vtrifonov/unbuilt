@@ -120,12 +120,15 @@ function findEmbeds(texts) {
   return embeds;
 }
 
-// Leak scanning happens once per text and image segment; the five leak-* rules filter these hits by pattern.
-function collectLeakHits(texts, images, embeds, opts) {
+// Leak scanning happens once per text, image segment and path; the five leak-* rules filter these hits by pattern.
+// Each file and directory is scanned by its own name (the last path segment), so a leak in a directory name is
+// reported once, at the directory, with no line (spec amendment 8a).
+function collectLeakHits(texts, images, embeds, paths, opts) {
   const hits = [];
   const keep = (file, found, line) => {
     for (const h of found) hits.push({ file, line: line === undefined ? h.line : line, match: h.match, pattern: h.pattern, kind: h.kind });
   };
+  for (const p of paths) if (p !== "") keep(p, scanText(p.slice(p.lastIndexOf("/") + 1), opts), null);
   for (const [file, text] of texts) keep(file, scanText(text, opts));
   for (const [file, img] of images) {
     if (img.format === null) continue;
@@ -183,7 +186,7 @@ export function buildContext(root, today) {
   const allowHosts = DEFAULT_ALLOW_HOSTS;
   const exactHosts = metaUsable ? exactHostsOf(meta) : [];
   const embeds = findEmbeds(texts);
-  const leakHits = collectLeakHits(texts, images, embeds, { allowHosts, exactHosts });
+  const leakHits = collectLeakHits(texts, images, embeds, [...entries.map((e) => e.path), ...dirs], { allowHosts, exactHosts });
   return {
     root, today, entries, dirs: new Set(dirs), files, texts, images, embeds, nodeModulesDirs, yaml, meta, versionError, metaUsable,
     modules, moduleIds, prose, declFiles, attempts, declarations, scenarioFiles, scenarios, citations,
@@ -198,9 +201,9 @@ export function runRules(ctx) {
   } else {
     for (const r of RULES) if (!r.needsMeta || ctx.metaUsable) findings.push(...r.fn(ctx));
   }
-  // Every message, the version short-circuit included, is masked as the last step.
+  // Every message and file column, the version short-circuit included, is masked as the last step (amendment 8a).
   const opts = { allowHosts: ctx.allowHosts, exactHosts: ctx.exactHosts };
-  return findings.map((f) => ({ ...f, message: maskText(f.message, opts) }));
+  return findings.map((f) => ({ ...f, file: maskText(f.file, opts), message: maskText(f.message, opts) }));
 }
 
 export function validate(dir, today) {
