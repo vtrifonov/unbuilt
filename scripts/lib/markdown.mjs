@@ -3,11 +3,14 @@ export const RETIRED_RE = /^- \*\*([A-Z]{2,8})-([1-9][0-9]*)\*\* retired: (\S.*)
 export const ATTEMPT_RE = /^\s*[-*+]\s+\*\*([A-Za-z]{2,8})-(\d+)\*\*(.*)$/;
 export const CITATION_RE = /\b([A-Z]{2,8})-([1-9][0-9]*)\b/g;
 
+// CRLF files: drop the \r so `.*$`-style patterns match; line counts are unchanged.
+const toLf = (text) => text.replace(/\r\n/g, "\n");
+
 export function blankCommentsAndFences(text) {
   const out = [];
   let fence = null;
   let inComment = false;
-  for (const line of text.split("\n")) {
+  for (const line of toLf(text).split("\n")) {
     if (fence) {
       out.push("");
       if (line.trimStart().startsWith(fence.ch.repeat(fence.len))) fence = null;
@@ -70,7 +73,7 @@ function exactOf(raw) {
 export function findAttempts(prose, knownPrefixes) {
   const known = new Set(knownPrefixes.map((p) => p.toLowerCase()));
   const attempts = [];
-  prose.split("\n").forEach((raw, idx) => {
+  toLf(prose).split("\n").forEach((raw, idx) => {
     const m = ATTEMPT_RE.exec(raw);
     if (!m) return;
     const rest = m[3];
@@ -98,7 +101,7 @@ export function findAttempts(prose, knownPrefixes) {
 export function findCitations(prose, knownPrefixes) {
   const known = new Set(knownPrefixes);
   const citations = [];
-  prose.split("\n").forEach((line, idx) => {
+  toLf(prose).split("\n").forEach((line, idx) => {
     for (const m of line.matchAll(CITATION_RE)) {
       if (!known.has(m[1])) continue;
       citations.push({ id: `${m[1]}-${m[2]}`, prefix: m[1], num: Number(m[2]), line: idx + 1, column: m.index + 1 });
@@ -107,7 +110,8 @@ export function findCitations(prose, knownPrefixes) {
   return citations;
 }
 
-export function findScenarioSections(prose) {
+export function findScenarioSections(text) {
+  const prose = toLf(text);
   const starts = [];
   prose.split("\n").forEach((line, idx) => {
     const m = /^## (.+)$/.exec(line);

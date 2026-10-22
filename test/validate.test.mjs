@@ -2,7 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { runCli, runJson, makeTempDir } from "./helpers.mjs";
+import { spawnSync } from "node:child_process";
+import { runCli, runJson, makeTempDir, REPO_ROOT } from "./helpers.mjs";
 
 test("--help prints usage and exits 0 (R-VAL-1)", () => {
   const r = runCli(["--help"]);
@@ -21,6 +22,16 @@ test("usage problems exit 2 with explanation and usage on stderr (R-VAL-2)", (t)
     assert.match(r.stderr, /usage: node scripts\/validate\.mjs/);
     assert.ok(r.stderr.split("\n")[0].length > 0);
   }
+});
+
+test("CLI runs when launched through a symlinked directory path", (t) => {
+  const dir = makeTempDir(t);
+  const link = path.join(dir, "scr");
+  fs.symlinkSync(path.join(REPO_ROOT, "scripts"), link, "dir");
+  const missing = path.join(dir, "missing-instance");
+  const r = spawnSync(process.execPath, [path.join(link, "validate.mjs"), missing], { encoding: "utf8" });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /path does not exist/);
 });
 
 test("--json prints exactly one document with errors and warnings arrays (R-VAL-6)", (t) => {
@@ -88,6 +99,17 @@ test("findAttempts classifies declaration attempts (R-VAL-22)", () => {
 test("findScenarioSections (R-FMT-18)", () => {
   const s = findScenarioSections("intro CORE-1\n## One\nbody\n### sub\n##NotOne\n## Two\n");
   assert.deepEqual(s, [{ title: "One", startLine: 2, endLine: 5 }, { title: "Two", startLine: 6, endLine: 6 }]);
+});
+test("Markdown helpers accept CRLF line endings", () => {
+  const crlf = "- **CORE-1** (MUST) Text.\r\n## One\r\n";
+  const a = findAttempts(crlf, ["CORE"]);
+  assert.equal(a.length, 1);
+  assert.equal(a[0].exact.text, "Text.");
+  assert.deepEqual(findScenarioSections(crlf), [{ title: "One", startLine: 2, endLine: 2 }]);
+  const prose = blankCommentsAndFences(crlf);
+  assert.equal(findAttempts(prose, ["CORE"]).length, 1);
+  assert.equal(findScenarioSections(prose).length, 1);
+  assert.equal(countLines(prose), countLines(crlf));
 });
 
 import zlib from "node:zlib";

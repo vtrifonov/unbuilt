@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { RULES, SUPPORTED_FORMAT_VERSION, finding, isCalendarDate } from "./lib/rules.mjs";
 import { DEFAULT_ALLOW_HOSTS, maskText } from "./lib/redaction.mjs";
 import { walkInstance, readText } from "./lib/walk.mjs";
@@ -181,4 +181,14 @@ function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+// Node resolves import.meta.url to the real path but leaves argv[1] as typed, so compare real paths.
+function isEntryScript() {
+  if (!process.argv[1]) return false;
+  try {
+    return fs.realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+  } catch {
+    return true;
+  }
+}
+
+if (isEntryScript()) main();
