@@ -313,6 +313,20 @@ test("a failure after the destination exists removes it and sanitises the intern
   assert.equal(fs.existsSync(dest), false);
 });
 
+test("a newline inside an internal error message stays on one sanitised line (R-SNP-7)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  writeIn(tmp, "nl.mjs", 'import fs from "node:fs";\nconst orig = fs.writeFileSync;\nlet n = 0;\nfs.writeFileSync = (...a) => { if (++n === 3) throw new Error("late\\u001b[31mRED\\nnext: forged"); return orig(...a); };\n');
+  const r = spawnSync(process.execPath, ["--import", pathToFileURL(path.join(tmp, "nl.mjs")).href, SCRIPT, inst, dest], { encoding: "utf8", timeout: 20000 });
+  assert.equal(r.status, 2, r.stderr);
+  assert.equal(r.stdout, "");
+  const lines = r.stderr.split("\n");
+  assert.equal(lines[0], "internal error: late?[31mRED?next: forged");
+  assert.ok(!lines.some((l) => l.startsWith("next")), r.stderr);
+  assert.ok(lines[1].length > 0);
+  assert.equal(fs.existsSync(dest), false);
+});
+
 test("an over-cap file with a control character is named sanitised on stderr (R-SNP-7)", (t) => {
   const { tmp, inst } = makeInst(t);
   const dest = path.join(tmp, "dest");

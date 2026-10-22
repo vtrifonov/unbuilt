@@ -18,8 +18,15 @@ export function sanitize(text) {
 }
 
 export function writeError(err) {
-  const text = err instanceof InstanceError ? err.message : `internal error: ${err?.message}\n${err?.stack}`;
-  process.stderr.write(String(text).split("\n").map(sanitize).join("\n") + "\n");
+  if (err instanceof InstanceError) {
+    process.stderr.write(sanitize(err.message) + "\n");
+    return;
+  }
+  const header = `${err?.name}: ${err?.message}`;
+  const stack = String(err?.stack ?? "");
+  const frames = stack.startsWith(header) ? stack.slice(header.length) : `\n${stack}`;
+  const lines = [`internal error: ${sanitize(err?.message)}`, sanitize(header), ...frames.split("\n").slice(1).map(sanitize)];
+  process.stderr.write(lines.join("\n") + "\n");
 }
 
 export class InstanceError extends Error {

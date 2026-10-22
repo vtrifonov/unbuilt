@@ -177,6 +177,18 @@ test("internal errors are sanitised on every stderr line (R-DIF-4, R-DIF-12)", (
   assert.ok(r.stderr.split("\n")[1].length > 0);
 });
 
+test("a newline inside an internal error message stays on one sanitised line (R-DIF-4, R-DIF-12)", (t) => {
+  const { tmp, oldDir, newDir } = sides(t);
+  writeIn(tmp, "nl.mjs", 'globalThis.TextDecoder = class { decode() { throw new Error("late\\u001b[31mRED\\nnext: forged"); } };\n');
+  const r = spawnSync(process.execPath, ["--import", pathToFileURL(path.join(tmp, "nl.mjs")).href, SCRIPT, oldDir, newDir], { encoding: "utf8", timeout: 20000 });
+  assert.equal(r.status, 2, r.stderr);
+  assert.equal(r.stdout, "");
+  const lines = r.stderr.split("\n");
+  assert.equal(lines[0], "internal error: late?[31mRED?next: forged");
+  assert.ok(!lines.some((l) => l.startsWith("next")), r.stderr);
+  assert.ok(lines[1].length > 0);
+});
+
 test("an over-cap file with a control character is named sanitised on stderr (R-DIF-3, R-DIF-12)", (t) => {
   const { oldDir, newDir } = sides(t);
   writeIn(newDir, "decisions/big\u001b.md", Buffer.alloc(MAX_TEXT_BYTES + 1, 0x61));
