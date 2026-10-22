@@ -71,6 +71,18 @@ test("embedded raster edge cases: clean, broken, mislabelled, and prose mentions
   assert.deepEqual(pick(prose.result), []);
 });
 
+test("whitespace and line-break entities after the comma or inside the payload do not hide an embed (amendment 7a revised)", (t) => {
+  const b64 = xmpPng().toString("base64");
+  const wrap = (sep) => b64.match(/.{1,40}/g).join(sep);
+  const forms = { "space": " " + b64, "lf": "\n" + b64, "entity": "&#10;" + b64, "hex entity": "&#xA;" + b64, "lf-wrapped": wrap("\n"), "crlf-wrapped": wrap("\r\n  "), "entity-wrapped": wrap("&#13;&#10;") };
+  for (const [name, payload] of Object.entries(forms)) {
+    const { result } = runWith(t, { "design/mock.svg": svgWith("data:image/png;base64," + payload) });
+    assert.deepEqual(pick(result), [["leak-home-path", "design/mock.svg", 2], ["leak-hostname", "design/mock.svg", 2]], name);
+  }
+  const prose = runWith(t, { "notes.md": "# Notes\n\nUse `data:image/png;base64, ...` or `data:image/png;base64,\n<payload>` here.\n" });
+  assert.deepEqual(pick(prose.result), []);
+});
+
 function makeJpegWithPath() {
   const data = Buffer.from("Exif\0\0/Users/alice/pic", "latin1");
   const h = Buffer.from([0xff, 0xe1, 0, 0]);

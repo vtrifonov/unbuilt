@@ -91,14 +91,18 @@ function normaliseModules(meta, yaml) {
 
 // A raster embedded in a text file as a data: URI (spec amendment 7a). Only base64 png, jpeg and webp
 // can be decoded and scanned; any other data:image/ embed becomes a file-types error.
-const EMBED_RE = /data:image\/([A-Za-z0-9.+-]+)((?:;[A-Za-z0-9=.+-]*)*),([A-Za-z0-9+/=%]+)/gi;
+// Whitespace and the line-break entities &#10; &#13; &#xA; &#xD; may sit after the comma and inside the payload
+// (browsers strip them before decoding); at least one payload character is still required, so prose such as
+// `data:image/png;base64,...` is not an embed (amendment 7a revised).
+const EMBED_RE = /data:image\/([A-Za-z0-9.+-]+)((?:;[A-Za-z0-9=.+-]*)*),((?:\s|&#(?:10|13|x0?[aAdD]);)*[A-Za-z0-9+/=%](?:[A-Za-z0-9+/=%]|\s|&#(?:10|13|x0?[aAdD]);)*)/gi;
+const EMBED_BREAKS_RE = /\s|&#(?:10|13|x0?[aAdD]);/g;
 const EMBED_FORMATS = { png: "png", jpeg: "jpeg", jpg: "jpeg", webp: "webp" };
 
 function scanEmbed(type, params, payload) {
   const format = EMBED_FORMATS[type];
   if (format === undefined) return { error: `data:image/${type} is not png, jpeg or webp`, segments: [] };
   if (!params.split(";").includes("base64")) return { error: `data:image/${type} is not base64-encoded`, segments: [] };
-  const buf = Buffer.from(payload, "base64");
+  const buf = Buffer.from(payload.replace(EMBED_BREAKS_RE, ""), "base64");
   if (buf.length > MAX_IMAGE_BYTES) return { error: `decodes to ${buf.length} bytes; the limit is ${MAX_IMAGE_BYTES}`, segments: [] };
   const img = extractImageText(buf);
   let error = img.error;
