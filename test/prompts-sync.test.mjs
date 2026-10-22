@@ -104,7 +104,7 @@ test("build skill deletes the staged baseline before the PLAN.md.next marker (R-
   const pinned = [
     "If step 2 exits other than 0, delete `.unbuilt/baseline.next` first and `PLAN.md.next` last, write nothing else and stop.",
     "When `PLAN.md.next` is present, the approval never committed: delete any `.unbuilt/baseline.next` first and `PLAN.md.next` last, then run `rmdir` on an empty `.unbuilt/` when no `PLAN.md` exists, and tell the builder.",
-    "`PLAN.md.next` is always the first staged file written and the last one deleted, so a staged baseline never exists without it.",
+    "`PLAN.md.next` is always the first staged file written and the last one deleted, so before the commit point a staged baseline never exists without it.",
   ];
   for (const s of pinned) assert.ok(body.includes(s), s);
   for (const start of ["If step 2 exits other than 0", "When `PLAN.md.next` is present"]) {
@@ -119,7 +119,7 @@ test("build skill keeps scratch until the plan is decided, plans uncovered IDs a
   const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8"));
   const pinned = [
     "Never delete it while a shown plan waits for the go-ahead.",
-    "If this run's snapshot no longer exists at the go-ahead, write nothing and run step 1 again.",
+    "With working scripts, if this run's snapshot no longer exists at the go-ahead, write nothing and run step 1 again.",
     "A declared ID of an included module that is not retired and that no milestone of the plan covers goes into a final milestone, `## Milestone <n>: Not covered by BUILD.md`, placed after every other milestone.",
     "Then apply the step 5 rule for uncovered IDs to the whole plan.",
     "Report each ID removed without a retired line once, in a sentence that names the ID and its file,",

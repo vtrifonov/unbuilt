@@ -108,7 +108,7 @@ If the milestones in `BUILD.md` do not parse (no `## Milestone 1:` heading, gaps
 
 A declared ID of an included module that is not retired and that no milestone of the plan covers goes into a final milestone, `## Milestone <n>: Not covered by BUILD.md`, placed after every other milestone. Its `<n>` is one more than the largest milestone number in the plan. Tell the builder which IDs went there and that no `BUILD.md` milestone covers them.
 
-Show the plan to the builder and stop. The scratch directory stays, as "Git and shell safety" says. Continue only on the builder's explicit go-ahead. On go-ahead, write the plan and the baseline in the write order of "The baseline", and give the one-time `.unbuilt/` notice. With no working scripts, write `PLAN.md` only. If this run's snapshot no longer exists at the go-ahead, write nothing and run step 1 again.
+Show the plan to the builder and stop. The scratch directory stays, as "Git and shell safety" says. Continue only on the builder's explicit go-ahead. On go-ahead, write the plan and the baseline in the write order of "The baseline", and give the one-time `.unbuilt/` notice. With no working scripts, write `PLAN.md` only. With working scripts, if this run's snapshot no longer exists at the go-ahead, write nothing and run step 1 again.
 
 ## The baseline
 
@@ -125,7 +125,7 @@ The write order:
 3. Rename `PLAN.md.next` to `PLAN.md`. This is the commit point.
 4. Delete `.unbuilt/baseline` when present, then rename `.unbuilt/baseline.next` to `.unbuilt/baseline`.
 
-If step 2 exits other than 0, delete `.unbuilt/baseline.next` first and `PLAN.md.next` last, write nothing else and stop. The baseline never changes partially. `PLAN.md.next` is always the first staged file written and the last one deleted, so a staged baseline never exists without it.
+If step 2 exits other than 0, delete `.unbuilt/baseline.next` first and `PLAN.md.next` last, write nothing else and stop. The baseline never changes partially. `PLAN.md.next` is always the first staged file written and the last one deleted, so before the commit point a staged baseline never exists without it.
 
 Recovery runs at the start of every run in a project whose `PLAN.md` or `PLAN.md.next` starts with `unbuilt-instance:`, after the checks. When `PLAN.md.next` is present, the approval never committed: delete any `.unbuilt/baseline.next` first and `PLAN.md.next` last, then run `rmdir` on an empty `.unbuilt/` when no `PLAN.md` exists, and tell the builder. Otherwise, when `.unbuilt/baseline.next` is present, finish step 4 of the write order and tell the builder. Both are safe to redo.
 
