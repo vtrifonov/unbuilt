@@ -1,0 +1,11 @@
+# Picker requirements
+
+- **PICKER-1** (MUST) (inferred) A global hotkey, working from any app, opens the picker, and pressing it again closes it. The menu bar icon opens and closes it too.
+- **PICKER-2** (SHOULD) (inferred) The hotkey defaults to Shift-Command-V. The user can change or clear it, and a new one needs at least one of Command, Option or Control. With none set, the menu bar icon is the only way in.
+- **PICKER-3** (MUST) (inferred) The picker appears over the front app without making the tool the active app, so that app stays active and can receive the paste. The search field still takes keyboard input.
+- **PICKER-4** (MUST) (inferred) The picker is fully operable from the keyboard. Each open starts with an empty, focused search field and the newest clip selected. Up and Down move the selection, Command with Up or Down jumps to the first or last clip, Return chooses the clip, Option-Return chooses it without pasting, and Command with 1 to 9 chooses that row. Escape clears the search, then closes the picker.
+- **PICKER-5** (MUST) (inferred) Search narrows the list as the user types. Every term must match anywhere in the clip, ignoring case and accents. A quoted phrase matches literally, a term starting with an at sign limits results to a source app, and is:text, is:link, is:image, is:file or is:pinned limit them by kind. Tab and Shift-Tab cycle the type chips: All, Text, Links, Images, Files and Pinned.
+- **PICKER-6** (SHOULD) (inferred) The selected clip is previewed before it is chosen: its whole text with matches highlighted, its full-size image, or its list of files.
+- **PICKER-7** (MUST) (inferred) Command-P pins or unpins the selected clip. Pinned clips are marked in the list and kept by automatic removal.
+- **PICKER-8** (SHOULD) (inferred) Command-Delete deletes the selected clip and shows an undo notice, with Command-Z, while it is visible. A pinned clip needs a second press. A clip copied again during the undo window is not deleted.
+- **PICKER-9** (SHOULD) (inferred) Banners above the list, each with the action that resolves it, report: paste permission missing, clipboard reading denied by the system, app running from a temporary location, history reset after damage, history not saved this session, a failed save, and a database needing a restart to repair. The last four can be dismissed.
