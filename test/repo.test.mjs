@@ -111,6 +111,10 @@ test("every FORMAT.md section a script cites exists and holds the cited rule (CR
   assert.ok(ft.length >= 2);
   for (const n of ft) assert.match(section(n), /1 MiB per image or embed and 8 MiB per run/);
 });
+test("FORMAT.md section 7 says whitespace and line-break entities in a data: payload are stripped before decoding (CR-COR-26, amendment 7a)", () => {
+  const s7 = FORMAT.slice(FORMAT.indexOf("\n## 7. "), FORMAT.indexOf("\n## 8. "));
+  assert.match(s7, /`data:` URI in a text file, whitespace and line-break entities in the payload stripped first;/);
+});
 test("FORMAT.md section 7 states how declined names are handled in unbuilt.yaml (R-FMT-43)", () => {
   const s7 = FORMAT.slice(FORMAT.indexOf("\n## 7. "), FORMAT.indexOf("\n## 8. "));
   assert.match(s7, /platform-blind/);
