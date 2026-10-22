@@ -467,3 +467,20 @@ test("raster metadata is scanned, pixels are not (R-VAL-13, R-VAL-16, R-VAL-43)"
   assert.deepEqual(leakRules(c.result), []);
   assert.deepEqual(c.result.errors.filter((f) => f.rule === "file-types"), []);
 });
+
+test("budget edge cases (rules 24–26, R-VAL-33, R-VAL-42)", (t) => {
+  const gif = runFixture(t, "budget-image", { mutate: (d) => fs.writeFileSync(path.join(d, "design/screen.gif"), "GIF89a") });
+  assert.ok(has(gif.result, "budget-image", "error", "design/screen.gif"));
+  assert.ok(!gif.result.errors.some((f) => f.rule === "file-types" && f.file === "design/screen.gif"));
+  const big = runFixture(t, "budget-file-lines", { mutate: (d) => fs.writeFileSync(path.join(d, "big.md"), Buffer.alloc(5 * 1024 * 1024 + 1, 0x61)) });
+  assert.ok(big.result.errors.some((f) => f.rule === "budget-file-lines" && f.file === "big.md" && f.message.includes("too large to scan")));
+  const ok = runFixture(t, "budget-file-lines", { mutate: (d) => fs.writeFileSync(path.join(d, "notes.md"), "w\n".repeat(1500)) });
+  assert.ok(!ok.result.errors.some((f) => f.rule === "budget-file-lines"));
+});
+
+test("each generated budget fixture fires only its own rule (plan decision 9)", (t) => {
+  for (const rule of ["budget-file-lines", "budget-total-words", "budget-image", "budget-module-count"]) {
+    const { result } = runFixture(t, rule);
+    assert.deepEqual([...result.errors, ...result.warnings].map((f) => f.rule), [rule], rule);
+  }
+});

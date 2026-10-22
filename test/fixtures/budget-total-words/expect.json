@@ -1,0 +1,1 @@
+{ "rule": "budget-total-words", "level": "error", "file": ".", "generate": { "words": 60001, "file": "notes.md" } }

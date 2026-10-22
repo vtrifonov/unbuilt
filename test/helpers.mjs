@@ -44,14 +44,48 @@ export function has(result, rule, level, file) {
   return list.some((f) => f.rule === rule && (file === undefined || f.file === file));
 }
 
+function generateModules(dir, count) {
+  const ids = Array.from({ length: count - 1 }, (_, i) => "A" + String.fromCharCode(0x41 + i));
+  const entries = ids.map((id) => `  - id: ${id}\n    path: modules/${id.toLowerCase()}\n    maturity: shipped\n`).join("");
+  const yaml = readIn(dir, "unbuilt.yaml");
+  if (!yaml.includes("\nsubstitutions:\n")) throw new Error("generate.modules: unbuilt.yaml has no substitutions: key after modules:");
+  writeIn(dir, "unbuilt.yaml", yaml.replace("\nsubstitutions:\n", `\n${entries}substitutions:\n`));
+  for (const id of ids) {
+    const m = `modules/${id.toLowerCase()}`;
+    writeIn(dir, `${m}/problem.md`, "# Problem\n\ntext\n");
+    writeIn(dir, `${m}/SPEC.md`, `# X\n\n- **${id}-1** (MUST) Does one thing.\n`);
+    writeIn(dir, `${m}/scenarios.md`, `# S\n\n## One\n\nCovers: ${id}-1\n`);
+  }
+  writeIn(dir, "substitutions/README.md", "# Substitutions\n\n| Module | storage |\n|---|---|\n| CORE | required |\n" + ids.map((id) => `| ${id} | - |\n`).join(""));
+}
+
+function generateWords(n) {
+  const lines = [];
+  for (let left = n; left > 0; left -= 200) lines.push(Array(Math.min(200, left)).fill("w").join(" "));
+  return lines.join("\n") + "\n";
+}
+
 function generate(dir, spec) {
   for (const key of Object.keys(spec)) {
     switch (key) {
+      case "file":
+        break;
+      case "lines":
+        writeIn(dir, spec.file, "w\n".repeat(spec.lines));
+        break;
+      case "words":
+        writeIn(dir, spec.file, generateWords(spec.words));
+        break;
+      case "png":
+        writeIn(dir, spec.file, makePng({ totalBytes: spec.png }));
+        break;
+      case "modules":
+        generateModules(dir, spec.modules);
+        break;
       default:
         throw new Error(`unknown generate key: ${key}`);
     }
   }
-  void dir;
 }
 
 function overlayFiles(srcDir, rel = "") {

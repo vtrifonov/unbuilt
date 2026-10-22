@@ -1,0 +1,1 @@
+{ "rule": "budget-file-lines", "level": "error", "file": "notes.md", "generate": { "lines": 1501, "file": "notes.md" } }

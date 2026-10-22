@@ -1,0 +1,1 @@
+{ "rule": "budget-image", "level": "error", "file": "design/big.png", "generate": { "png": 2097153, "file": "design/big.png" } }

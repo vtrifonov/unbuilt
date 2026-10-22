@@ -1,4 +1,5 @@
 import { maskMatch, scanText } from "./redaction.mjs";
+import { countLines, countWords } from "./markdown.mjs";
 
 export const SUPPORTED_FORMAT_VERSION = 1;
 
@@ -415,6 +416,52 @@ const leakHostname = leakRule("leak-hostname", ["hostname"], (m) => `hostname ${
 const leakHomePath = leakRule("leak-home-path", ["home-path"], (m) => `home path ${m} found; replace it with a role word (FORMAT.md §7)`);
 const leakSecret = leakRule("leak-secret", ["secret"], (m) => `secret-shaped value ${m} found; remove it (FORMAT.md §7)`);
 
+const MAX_MD_LINES = 1500;
+const MAX_MD_WORDS = 60000;
+const MAX_IMAGE_BYTES = 2097152;
+const MAX_MODULES = 12;
+const ALLOWED_IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "svg"];
+const REJECTED_IMAGE_EXTS = ["gif", "bmp", "tif", "tiff", "heic", "ico", "avif"];
+const IMAGE_EXTS = [...ALLOWED_IMAGE_EXTS, ...REJECTED_IMAGE_EXTS];
+
+function budgetFileLines(ctx) {
+  const out = [];
+  for (const e of ctx.entries) {
+    if (e.kind !== "file") continue;
+    if (e.isText && e.tooLarge) {
+      out.push(finding("error", "budget-file-lines", e.path, null, `${e.path} is too large to scan (over 5 MB) (FORMAT.md §8)`));
+      continue;
+    }
+    if (e.ext !== "md" || !ctx.texts.has(e.path)) continue;
+    const n = countLines(ctx.texts.get(e.path));
+    if (n > MAX_MD_LINES) out.push(finding("error", "budget-file-lines", e.path, null, `${e.path} has ${n} lines; the limit is ${MAX_MD_LINES} (FORMAT.md §8)`));
+  }
+  return out;
+}
+
+function budgetTotalWords(ctx) {
+  let n = 0;
+  for (const [p, text] of ctx.texts) if (ctx.files.get(p)?.ext === "md") n += countWords(text);
+  if (n <= MAX_MD_WORDS) return [];
+  return [finding("error", "budget-total-words", ".", null, `instance has ${n} words of Markdown; the limit is ${MAX_MD_WORDS} (FORMAT.md §8)`)];
+}
+
+function budgetImage(ctx) {
+  const out = [];
+  for (const e of ctx.entries) {
+    if (e.kind !== "file" || !IMAGE_EXTS.includes(e.ext)) continue;
+    if (e.size > MAX_IMAGE_BYTES) out.push(finding("error", "budget-image", e.path, null, `${e.path} is ${e.size} bytes; the limit is ${MAX_IMAGE_BYTES} (FORMAT.md §8)`));
+    if (!ALLOWED_IMAGE_EXTS.includes(e.ext)) out.push(finding("error", "budget-image", e.path, null, `${e.path} has type ${e.ext}; allowed image types are ${ALLOWED_IMAGE_EXTS.join(", ")} (FORMAT.md §8)`));
+  }
+  return out;
+}
+
+function budgetModuleCount(ctx) {
+  const n = ctx.modules.length;
+  if (n <= MAX_MODULES) return [];
+  return [finding("error", "budget-module-count", ".", null, `${n} modules are declared; the limit is ${MAX_MODULES} (FORMAT.md §8)`)];
+}
+
 RULES.push(
   { name: "required-files", fn: requiredFiles, needsMeta: false },
   { name: "module-files", fn: moduleFiles, needsMeta: true },
@@ -439,6 +486,10 @@ RULES.push(
   { name: "leak-hostname", fn: leakHostname, needsMeta: false },
   { name: "leak-home-path", fn: leakHomePath, needsMeta: false },
   { name: "leak-secret", fn: leakSecret, needsMeta: false },
+  { name: "budget-file-lines", fn: budgetFileLines, needsMeta: false },
+  { name: "budget-total-words", fn: budgetTotalWords, needsMeta: false },
+  { name: "budget-image", fn: budgetImage, needsMeta: false },
+  { name: "budget-module-count", fn: budgetModuleCount, needsMeta: true },
 );
 
 export function isCalendarDate(s) {
