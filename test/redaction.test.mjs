@@ -146,6 +146,22 @@ test("key-suffixed credential names and Bearer tokens are secrets (amendment 7b,
     "private_key: <path-to-key>", "aws_secret_access_key = $AWS_SECRET", "access_key: REPLACE_WITH_YOUR_KEY", "mysecret_key=" + v];
   for (const t of negatives) assert.equal(hits(t, "secret").length, 0, t);
 });
+test("credential names must end in a credential noun; Bearer needs header context or a mixed value (amendment 7b revised)", () => {
+  const v = ["Zx81", "kq9L", "p2mm"].join("");
+  const positives = [A("SECRET", "_KEY = '") + v + "'", A("aws_secret_", "access_key = ") + v, A("AWS_SECRET_", "ACCESS_KEY=") + v, A("private", "_key: ") + v, A("client_sec", "ret: ") + v,
+    A("Bea", "rer ") + ["abc1", "def2", "ghi3", "jkl4", "mno5"].join(""), A("\"Bea", "rer ") + ["abcd", "efgh", "ijkl", "mnop", "qrs9"].join(""), A("Authorization: Bea", "rer ") + "abcdefghijklmnopqrst" + "1"];
+  for (const t of positives) assert.equal(hits(t, "secret").length, 1, t.slice(0, 14));
+  const negatives = ["tokenizer: cl100k_base", "token_endpoint: https://login.microsoftonline.com/common/oauth2/v2.0/token", "password_policy: min-12-chars",
+    "secret_name: prod-db-credentials-v2", "token_ttl_seconds: 86400000", "passwordless_login: enabled-since-2024", "access_key_rotation=every-90-days",
+    A("Bea", "rer authentication-scheme-v2-reference"), A("Bea", "rer ") + "abcdefghijklmnopqrst" + "1"];
+  for (const t of negatives) assert.equal(hits(t, "secret").length, 0, t);
+});
+test("a URL scheme after _, -, . or + is still a URL (amendment 7c revised)", () => {
+  const rows = [["_https://build01.widgets-intranet.com_", "build01.widgets-intranet.com"], ["_https://grafana:3000/d/x_", "grafana"], ["_https://wiki/x_", "wiki"],
+    ["-https://wiki", "wiki"], [".https://wiki", "wiki"], ["+https://wiki", "wiki"],
+    ["-https://grafana:3000", "grafana"], [".https://grafana:3000", "grafana"], ["+https://grafana:3000", "grafana"]];
+  for (const [t, host] of rows) assert.deepEqual(hits(t, "hostname").map((f) => f.match), [host], t);
+});
 test("ipv6 at the end of a sentence", () => {
   const h = hits("Connects to fd12:3456:789a::1.", "ipv6");
   assert.equal(h.length, 1);
@@ -221,6 +237,7 @@ test("leak scanning is linear: a 1 MB single-token run of each hot class scans u
     "email domain": "x@" + run("a-"),
     "url scheme plus": run("a+"),
     "url scheme dotted": run("a.", "x"),
+    "bounded url scheme": run("a.", "a://x"),
     "ipv6 colons": run(":", "g"),
     "ipv6 hex colon": run("a:", "g"),
     "ipv6 digit colon": run("1:", ".x"),

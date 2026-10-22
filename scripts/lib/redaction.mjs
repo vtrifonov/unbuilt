@@ -143,7 +143,9 @@ export const TLDS = [
   "internal", "lan", "corp", "intranet", "arpa",
 ];
 const BARE_HOST_RE = new RegExp(`(?<![@\\w.-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:${TLDS.join("|")}))(?![\\w-])`, "gi");
-const URL_HOST_RE = /(?<![A-Za-z0-9+.\-_])[a-z][a-z0-9+.-]*:\/\/([^/\s?#\[\]"'<>()`]+)/gi;
+// The scheme is bounded to 32 characters, so each start costs at most 32 steps and `_`, `-`, `.` or `+`
+// before a scheme never blocks a match (amendment 7c revised).
+const URL_HOST_RE = /(?<![A-Za-z0-9])[a-z][a-z0-9+.-]{0,31}:\/\/([^/\s?#\[\]"'<>()`]+)/gi;
 const IPV4_FULL_RE = new RegExp(`^${IPV4_RE.source}$`);
 
 // Sentence punctuation and emphasis markers after a URL are not part of its authority (amendment 8g).
@@ -214,9 +216,20 @@ export const SECRET_SHAPES = [
   /\bnpm_[A-Za-z0-9]{36}\b/g,
   /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
 ];
-// A credential keyword, an optional identifier tail (SECRET_KEY, aws_secret_access_key), then ":" or "=" and the value (amendment 7b).
-const GENERIC_SECRET_RE = /(?<![A-Za-z0-9])(?:pass(?:word|wd)?|secret|token|api[_-]?key|private[_-]?key|access[_-]?key)[A-Za-z0-9_-]{0,32}["']?\s*[:=]\s*["']?([^\s"'<>]{8,})/gi;
+// Up to four identifier words, then a name that ends in a credential noun (SECRET_KEY, aws_secret_access_key,
+// client_secret; not tokenizer or secret_name), then ":" or "=" and the value (amendment 7b revised).
+const GENERIC_SECRET_RE = /(?<![A-Za-z0-9])(?:[A-Za-z0-9]+[_-]){0,4}(?:pass(?:word|wd)?|secret|token|api[_-]?key|private[_-]?key|access[_-]?key|secret[_-]?key)["']?\s*[:=]\s*["']?([^\s"'<>]{8,})/gi;
 const BEARER_RE = /\bBearer\s+([A-Za-z0-9._~+/-]{20,})/g;
+const BEARER_HEADER_RE = /(?:Authorization:\s*|["'`])$/i;
+const hasDigitAndLetter = (s) => /\d/.test(s) && /[A-Za-z]/.test(s);
+
+// A Bearer value counts only in a header context (Authorization:, or a quote or backtick before "Bearer"),
+// or when each half of the value has a digit and a letter, so prose naming a versioned auth scheme passes.
+function isBearerSecret(text, m) {
+  if (BEARER_HEADER_RE.test(text.slice(Math.max(0, m.index - 64), m.index))) return true;
+  const half = m[1].length >> 1;
+  return hasDigitAndLetter(m[1].slice(0, half)) && hasDigitAndLetter(m[1].slice(half));
+}
 
 function isPlaceholderValue(v) {
   if (v.startsWith("<") || v.startsWith("$")) return true;
@@ -234,6 +247,7 @@ function scanSecret(text, seeded = []) {
   for (const re of [GENERIC_SECRET_RE, BEARER_RE]) {
     for (const m of text.matchAll(re)) {
       if (isPlaceholderValue(m[1])) continue;
+      if (re === BEARER_RE && !isBearerSecret(text, m)) continue;
       found.push({ pattern: "secret", start: m.index, end: m.index + m[0].length, match: m[0] });
     }
   }
