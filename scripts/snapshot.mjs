@@ -99,9 +99,68 @@ export function readIncludedFile(instanceRoot, relPath) {
   }
 }
 
-function main() {
-  process.stderr.write(USAGE);
+export function parseArgs(argv) {
+  if (argv.includes("--help")) return { help: true };
+  const flag = argv.find((a) => a.startsWith("--"));
+  if (flag !== undefined) return { usageError: `unknown flag: ${flag}` };
+  if (argv.length !== 2) return { usageError: "expected exactly two arguments: <instance-dir> <dest-dir>" };
+  return { instanceDir: argv[0], destDir: argv[1] };
+}
+
+export function snapshotInstance(instanceDir, destDir) {
+  const root = path.resolve(instanceDir);
+  const dest = path.resolve(destDir);
+  const destFail = (reason) => new InstanceError(`${reason}: ${sanitize(dest)}`);
+  const lstatOrNull = (p) => { try { return fs.lstatSync(p); } catch { return null; } };
+  if (lstatOrNull(dest)) throw destFail("destination exists");
+  if (!lstatOrNull(path.dirname(dest))?.isDirectory()) throw destFail("destination parent is missing or not a real directory");
+  const realParent = fs.realpathSync(path.dirname(dest));
+  const realRoot = fs.realpathSync(root);
+  if (realParent === realRoot || realParent.startsWith(realRoot + path.sep)) throw destFail("destination is inside the instance");
+  const { included, excluded, skipped } = scanInstance(root);
+  fs.mkdirSync(dest);
+  try {
+    for (const entry of included) {
+      const bytes = readIncludedFile(root, entry.path);
+      const target = path.join(dest, entry.path);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, bytes, { flag: "wx" });
+    }
+  } catch (err) {
+    fs.rmSync(dest, { recursive: true, force: true });
+    throw err;
+  }
+  return { excluded, skipped, copied: included.length };
+}
+
+function usageFail(message) {
+  process.stderr.write(`${sanitize(message)}\n${USAGE}`);
   process.exitCode = 2;
+}
+
+function main() {
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    if (args.help) {
+      process.stdout.write(USAGE);
+      return;
+    }
+    if (args.usageError) return usageFail(args.usageError);
+    const dir = args.instanceDir;
+    let stat = null;
+    try { stat = fs.statSync(dir); } catch { /* reported below */ }
+    if (!stat) return usageFail(`path does not exist: ${dir}`);
+    if (!stat.isDirectory()) return usageFail(`not a directory: ${dir}`);
+    try { fs.accessSync(dir, fs.constants.R_OK | fs.constants.X_OK); } catch { return usageFail(`cannot read directory: ${dir}`); }
+    const r = snapshotInstance(dir, args.destDir);
+    const lines = [...r.excluded.map((p) => `excluded ${sanitize(p)}`), ...r.skipped.map((s) => `skipped ${sanitize(s.path)} (${s.kind})`), `copied ${r.copied} file(s)`];
+    process.stdout.write(lines.join("\n") + "\n");
+    process.exitCode = r.excluded.length || r.skipped.length ? 1 : 0;
+  } catch (err) {
+    if (err instanceof InstanceError) process.stderr.write(`${err.message}\n`);
+    else process.stderr.write(`internal error: ${err.message}\n${err.stack}\n`);
+    process.exitCode = 2;
+  }
 }
 
 // Node resolves import.meta.url to the real path but leaves argv[1] as typed, so compare real paths.

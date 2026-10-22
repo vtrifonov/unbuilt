@@ -137,3 +137,206 @@ test("scanInstance reports included, excluded and skipped entries (R-SNP-1, R-SN
   assert.deepEqual(r.excluded, ["CLAUDE.md"]);
   assert.deepEqual(r.skipped, [{ path: "notes.md", kind: "symlink" }]);
 });
+
+function tree(dir, rel = "") {
+  const out = [];
+  for (const ent of fs.readdirSync(path.join(dir, rel), { withFileTypes: true })) {
+    const r = rel === "" ? ent.name : `${rel}/${ent.name}`;
+    if (ent.isDirectory()) out.push(...tree(dir, r));
+    else if (ent.isFile()) out.push([r, fs.readFileSync(path.join(dir, r)).toString("base64")]);
+  }
+  return rel === "" ? out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)) : out;
+}
+const includedOf = (tr) => tr.filter(([p]) => p === "unbuilt.yaml" || p.endsWith(".md"));
+const lastLine = (s) => s.trimEnd().split("\n").pop();
+
+test("copies the included set with identical bytes and never changes the instance (R-SNP-6)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  writeIn(inst, "design/screen.png", Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3]));
+  writeIn(inst, "notes.txt", "notes\n");
+  const before = tree(inst);
+  const r = runSnapshot([inst, dest]);
+  assert.equal(r.code, 0, r.stderr);
+  const want = includedOf(before);
+  assert.deepEqual(tree(dest), want);
+  assert.equal(lastLine(r.stdout), `copied ${want.length} file(s)`);
+  assert.deepEqual(tree(inst), before);
+});
+
+test("excludes agent files and dot paths by name (R-SNP-1, R-SNP-7)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  const names = ["CLAUDE.md", "modules/core/agents.md", "AGENT.md", "CLAUDE.local.md", "GEMINI.md", ".claude/commands/x.md", ".hidden.md"];
+  for (const n of names) writeIn(inst, n, "# agent\n");
+  writeIn(inst, ".bad\u001bname.md", "# bad\n");
+  const r = runSnapshot([inst, dest]);
+  assert.equal(r.code, 1, r.stderr);
+  for (const n of names) {
+    assert.ok(r.stdout.includes(`excluded ${n}\n`), n);
+    assert.equal(fs.existsSync(path.join(dest, n)), false, n);
+  }
+  assert.ok(r.stdout.includes("excluded .bad?name.md\n"));
+  assert.ok(!r.stdout.includes("\u001b"));
+});
+
+test("skips symlinks without following them (R-SNP-6, R-SNP-7)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  if (!canSymlink(tmp)) { t.skip("symbolic links cannot be created here"); return; }
+  const dest = path.join(tmp, "dest");
+  writeIn(tmp, "outside.md", "OUTSIDE-TEXT\n");
+  writeIn(tmp, "outdir/SPEC.md", "OUTSIDE-TEXT\n");
+  fs.unlinkSync(path.join(inst, "README.md"));
+  fs.symlinkSync(path.join(tmp, "outside.md"), path.join(inst, "README.md"));
+  fs.symlinkSync(path.join(tmp, "outdir"), path.join(inst, "modules", "linked"));
+  const r = runSnapshot([inst, dest]);
+  assert.equal(r.code, 1, r.stderr);
+  assert.ok(r.stdout.includes("skipped README.md (symlink)\n"));
+  for (const [p, b64] of tree(dest)) assert.ok(!Buffer.from(b64, "base64").toString().includes("OUTSIDE-TEXT"), p);
+  assert.equal(fs.existsSync(path.join(dest, "modules", "linked")), false);
+});
+
+test("skips a FIFO and does not block (R-SNP-6, R-SNP-7)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  fs.mkdirSync(path.join(inst, "decisions"));
+  if (!mkfifo(path.join(inst, "decisions", "pipe.md"))) { t.skip("mkfifo is unavailable"); return; }
+  const r = runSnapshot([inst, path.join(tmp, "dest")]);
+  assert.equal(r.code, 1, r.stderr);
+  assert.ok(r.stdout.includes("skipped decisions/pipe.md (fifo)"));
+});
+
+test("too many files leaves no destination (R-SNP-3)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  fs.mkdirSync(path.join(inst, "decisions"));
+  for (let i = 0; i < 10001; i++) fs.writeFileSync(path.join(inst, "decisions", `f${i}.md`), "");
+  const r = runSnapshot([inst, dest]);
+  assert.equal(r.code, 2);
+  assert.equal(r.stdout, "");
+  assert.equal(fs.existsSync(dest), false);
+});
+
+test("copies names with shell metacharacters verbatim (R-SNP-6)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  const names = ["$(touch marker).md", "-n.md", "it's.md"];
+  for (const n of names) writeIn(inst, `decisions/${n}`, `# ${n}\n`);
+  const r = runSnapshot([inst, dest], { cwd: tmp });
+  assert.equal(r.code, 0, r.stderr);
+  for (const n of names) assert.deepEqual(fs.readFileSync(path.join(dest, "decisions", n)), fs.readFileSync(path.join(inst, "decisions", n)), n);
+  for (const d of [tmp, inst, REPO_ROOT]) assert.equal(fs.existsSync(path.join(d, "marker")), false, d);
+});
+
+test("refuses an existing destination (R-SNP-5)", async (t) => {
+  await t.test("empty directory", (t) => {
+    const { tmp, inst } = makeInst(t);
+    const dest = path.join(tmp, "dest");
+    fs.mkdirSync(dest);
+    const r = runSnapshot([inst, dest]);
+    assert.equal(r.code, 2);
+    assert.equal(r.stdout, "");
+    assert.deepEqual(fs.readdirSync(dest), []);
+  });
+  await t.test("regular file", (t) => {
+    const { tmp, inst } = makeInst(t);
+    const dest = path.join(tmp, "dest");
+    fs.writeFileSync(dest, "keep");
+    const r = runSnapshot([inst, dest]);
+    assert.equal(r.code, 2);
+    assert.equal(r.stdout, "");
+    assert.equal(fs.readFileSync(dest, "utf8"), "keep");
+  });
+});
+
+test("refuses a destination whose parent is a symlink (R-SNP-5)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  if (!canSymlink(tmp)) { t.skip("symbolic links cannot be created here"); return; }
+  fs.mkdirSync(path.join(tmp, "real"));
+  fs.symlinkSync(path.join(tmp, "real"), path.join(tmp, "via"));
+  const r = runSnapshot([inst, path.join(tmp, "via", "dest")]);
+  assert.equal(r.code, 2);
+  assert.deepEqual(fs.readdirSync(path.join(tmp, "real")), []);
+});
+
+test("refuses a destination inside the instance (R-SNP-5)", (t) => {
+  const { inst } = makeInst(t);
+  const before = tree(inst);
+  const r = runSnapshot([inst, path.join(inst, "snap")]);
+  assert.equal(r.code, 2);
+  assert.deepEqual(tree(inst), before);
+  assert.equal(fs.existsSync(path.join(inst, "snap")), false);
+});
+
+test("over-cap file exits 2 and names it (R-SNP-2, R-SNP-6)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  writeIn(inst, "decisions/big.md", Buffer.alloc(MAX_TEXT_BYTES + 1, 0x61));
+  const r = runSnapshot([inst, dest]);
+  assert.equal(r.code, 2);
+  assert.ok(r.stderr.includes("decisions/big.md"), r.stderr);
+  assert.equal(fs.existsSync(dest), false);
+});
+
+test("unreadable included file exits 2 (R-SNP-2)", (t) => {
+  if (unreadableSkip()) { t.skip("running as root or on Windows"); return; }
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  fs.chmodSync(path.join(inst, "modules/core/SPEC.md"), 0o000);
+  const r = runSnapshot([inst, dest]);
+  assert.equal(r.code, 2);
+  assert.equal(fs.existsSync(dest), false);
+});
+
+test("internal error exits 2 with the message and stack (R-SNP-4)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  writeIn(tmp, "boom.mjs", 'import fs from "node:fs";\nfs.mkdirSync = () => { throw new Error("boom"); };\n');
+  const r = spawnSync(process.execPath, ["--import", pathToFileURL(path.join(tmp, "boom.mjs")).href, SCRIPT, inst, dest], { encoding: "utf8", timeout: 20000 });
+  assert.equal(r.status, 2, r.stderr);
+  assert.equal(r.stdout, "");
+  assert.ok(r.stderr.startsWith("internal error: boom\n"), r.stderr);
+  assert.ok(r.stderr.split("\n")[1].length > 0);
+  assert.equal(fs.existsSync(dest), false);
+});
+
+test("snapshot of a snapshot is identical (R-SNP-6)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const a = path.join(tmp, "a");
+  const b = path.join(tmp, "b");
+  assert.equal(runSnapshot([inst, a]).code, 0);
+  assert.equal(runSnapshot([a, b]).code, 0);
+  assert.deepEqual(tree(a), tree(b));
+});
+
+test("usage errors exit 2 with the usage text (R-SNP-4)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  const dest = path.join(tmp, "dest");
+  writeIn(tmp, "plain.txt", "x\n");
+  const cases = [[], [inst], [inst, dest, "x"], [inst, dest, "--json"], [path.join(tmp, "missing"), dest], [path.join(tmp, "plain.txt"), dest]];
+  for (const args of cases) {
+    const r = runSnapshot(args);
+    const label = JSON.stringify(args);
+    assert.equal(r.code, 2, label);
+    assert.equal(r.stdout, "", label);
+    assert.ok(r.stderr.endsWith(USAGE), label);
+    assert.notEqual(r.stderr.split("\n")[0], "", label);
+  }
+  assert.equal(fs.existsSync(dest), false);
+});
+
+test("--help prints the usage (R-SNP-4)", () => {
+  const r = runSnapshot(["--help"]);
+  assert.equal(r.code, 0);
+  assert.equal(r.stdout, USAGE);
+});
+
+test("follows a symlinked instance root (Review Focus 1, R-SNP-6)", (t) => {
+  const { tmp, inst } = makeInst(t);
+  if (!canSymlink(tmp)) { t.skip("symbolic links cannot be created here"); return; }
+  const link = path.join(tmp, "link");
+  const dest = path.join(tmp, "dest");
+  fs.symlinkSync(inst, link);
+  const r = runSnapshot([link, dest]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.deepEqual(tree(dest), includedOf(tree(inst)));
+});
