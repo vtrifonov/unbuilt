@@ -45,7 +45,7 @@ File names are case-sensitive. Modules are one directory per user-facing capabil
 
 Milestone 1 is a thin end-to-end slice the builder can see run. Later milestones follow dependency order; the author may reorder. The structure of `BUILD.md` is read by the build skill and is not machine-checked in format version 1.
 
-**Scenarios.** A scenario is a level-2 section (`## <title>` up to the next `## ` heading or end of file) in a module's `scenarios.md`. Text before the first `## ` heading is not a scenario. Each scenario cites at least one declared, non-retired requirement ID anywhere in its section; the recommended form is a line `Covers: CORE-1, INV-2` (`scenario-cites-id`). Write `Given`, `When` and `Then` lines that describe behaviour, not code. A scenario may cite other modules' IDs and invariants.
+**Scenarios.** A scenario is a level-2 section (`## <title>` up to the next `## ` heading or end of file) in a module's `scenarios.md`. Text before the first `## ` heading is not a scenario. Each scenario cites at least one declared, non-retired requirement ID anywhere in its section; the recommended form is a line `Covers: CORE-1, INV-2` (`scenario-cites-id`). A `scenarios.md` with no scenario sections is a `scenario-cites-id` warning. Write Given/When/Then lines describing behaviour, not code. A scenario may cite other modules' IDs and invariants.
 
 **`unbuilt.yaml`.** Written in the YAML subset of section 10. Field order is free.
 
@@ -88,6 +88,7 @@ The validator checks the shape of these only when they are present.
 | `implementations.md` | Reserved name, added only after a second build exists. Nothing more is specified. | none |
 
 The `Checked:` and `Expires:` lines are the first two non-blank lines of an evidence file after an optional level-1 heading, in either order.
+
 ## 5. Requirement IDs
 
 An ID is `<MOD>-<n>`. `MOD` is the declaring module's `id` from `unbuilt.yaml`, or `INV` for invariants in the root `SPEC.md`. `n` is a positive integer without leading zeros.
