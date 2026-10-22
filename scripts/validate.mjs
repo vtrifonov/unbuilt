@@ -139,11 +139,13 @@ export function buildContext(root, today) {
 }
 
 export function runRules(ctx) {
-  if (ctx.versionError) {
-    return [finding("error", "yaml-fields", "unbuilt.yaml", ctx.yaml.lines.get("unbuilt"), "format version " + ctx.meta.unbuilt + " is not supported by this validator (supports " + SUPPORTED_FORMAT_VERSION + "); see CHANGELOG.md")];
-  }
   const findings = [];
-  for (const r of RULES) if (!r.needsMeta || ctx.metaUsable) findings.push(...r.fn(ctx));
+  if (ctx.versionError) {
+    findings.push(finding("error", "yaml-fields", "unbuilt.yaml", ctx.yaml.lines.get("unbuilt"), "format version " + ctx.meta.unbuilt + " is not supported by this validator (supports " + SUPPORTED_FORMAT_VERSION + "); see CHANGELOG.md"));
+  } else {
+    for (const r of RULES) if (!r.needsMeta || ctx.metaUsable) findings.push(...r.fn(ctx));
+  }
+  // Every message, the version short-circuit included, is masked as the last step.
   const opts = { allowHosts: ctx.allowHosts, exactHosts: ctx.exactHosts };
   return findings.map((f) => ({ ...f, message: maskText(f.message, opts) }));
 }

@@ -135,6 +135,24 @@ test("png corrupt zTXt and truncated chunk are errors; earlier segments kept", (
   const b = extractImageText(makePng({ truncate: true }));
   assert.match(b.error, /truncated/);
 });
+test("zTXt and compressed iTXt that inflate past 1 MiB are errors, not a memory blow-up (R-VAL-43)", { timeout: 5000 }, () => {
+  const bomb = zlib.deflateSync(Buffer.alloc(2 * 1048576, 0x61));
+  const t0 = Date.now();
+  const z = extractImageText(makePng({ text: [{ keyword: "k", text: "first" }], ztxt: [{ keyword: "Comment", deflated: bomb }] }));
+  const i = extractImageText(makePng({ itxt: [{ keyword: "XML:com.adobe.xmp", compressed: true, deflated: bomb }] }));
+  assert.ok(Date.now() - t0 < 2000, "inflate cap must stop early");
+  assert.equal(z.format, "png"); assert.notEqual(z.error, null);
+  assert.ok(z.segments.some((s) => s.includes("first")));
+  assert.equal(i.format, "png"); assert.notEqual(i.error, null);
+  const ok = extractImageText(makePng({ ztxt: [{ keyword: "Comment", text: "zipped note" }] }));
+  assert.equal(ok.error, null); assert.ok(ok.segments.some((s) => s.includes("zipped note")));
+});
+test("webp with an understated RIFF size is a truncated WebP chunk (R-VAL-43)", () => {
+  for (const riffSize of [0, 3, 4]) {
+    const r = extractImageText(makeWebp({ exif: "Exif\0\0/home/bob/pic", riffSize }));
+    assert.equal(r.format, "webp"); assert.equal(r.error, "truncated WebP chunk", String(riffSize));
+  }
+});
 test("jpeg APP1 and COM segments", () => {
   const xmp = "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>";
   const r = extractImageText(makeJpeg({ app1: [xmp, "Exif\0\0/home/bob/pic"], com: ["a comment"] }));
@@ -203,6 +221,26 @@ test("unsupported version stops other rules (R-FMT-9)", (t) => {
   assert.deepEqual(j.result.errors, [{ rule: "yaml-fields", file: "unbuilt.yaml", line: 1, message: "format version 2 is not supported by this validator (supports 1); see CHANGELOG.md" }]);
 });
 test("SUPPORTED_FORMAT_VERSION is the integer 1 (R-VAL-9)", () => { assert.equal(SUPPORTED_FORMAT_VERSION, 1); assert.ok(Array.isArray(RULES)); });
+
+import { buildContext, runRules } from "../scripts/validate.mjs";
+import { finding } from "../scripts/lib/rules.mjs";
+
+test("runRules skips needsMeta rules without unbuilt.yaml and masks every message (R-VAL-14, R-VAL-8)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  fs.rmSync(path.join(dir, "unbuilt.yaml"));
+  const email = ["ops", "widgets-intranet.com"].join("@");
+  RULES.push({ name: "stub-gated", needsMeta: true, fn: () => [finding("error", "stub-gated", "SPEC.md", 1, "gated rule ran")] });
+  RULES.push({ name: "stub-free", needsMeta: false, fn: () => [finding("warning", "stub-free", "README.md", 1, `contact ${email} for access`)] });
+  try {
+    const findings = runRules(buildContext(dir, "2026-10-22"));
+    const stubs = findings.filter((f) => f.rule.startsWith("stub-"));
+    assert.deepEqual(stubs.map((f) => f.rule), ["stub-free"]);
+    assert.ok(!stubs[0].message.includes(email), stubs[0].message);
+    assert.match(stubs[0].message, /^contact op… for access$/);
+  } finally {
+    RULES.pop(); RULES.pop();
+  }
+});
 
 import { runFixture, has } from "./helpers.mjs";
 

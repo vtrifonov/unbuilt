@@ -3,7 +3,19 @@ import zlib from "node:zlib";
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const XMP_PREFIX = "http://ns.adobe.com/xap/1.0/";
 
+// Inflated text chunks are capped so a small file cannot exhaust memory (decompression bomb).
+const MAX_INFLATED_BYTES = 1048576;
+
 const utf8 = (b) => new TextDecoder("utf-8").decode(b);
+
+// Returns the inflated buffer, or a string error that becomes the "cannot be parsed" finding.
+function inflateCapped(body, chunk) {
+  try {
+    return zlib.inflateSync(body, { maxOutputLength: MAX_INFLATED_BYTES });
+  } catch (err) {
+    return err?.code === "ERR_BUFFER_TOO_LARGE" ? `${chunk} chunk inflates past 1 MiB` : `${chunk} chunk failed to inflate`;
+  }
+}
 const latin1 = (b) => Buffer.from(b).toString("latin1");
 
 function detect(buf) {
@@ -36,11 +48,9 @@ function parsePng(buf, segments) {
       segments.push(latin1(kw) + "\n" + latin1(data.subarray(p)));
     } else if (type === "zTXt") {
       const [kw, p] = splitNul(data);
-      try {
-        segments.push(latin1(kw) + "\n" + latin1(zlib.inflateSync(data.subarray(p + 1))));
-      } catch {
-        return "zTXt chunk failed to inflate";
-      }
+      const text = inflateCapped(data.subarray(p + 1), "zTXt");
+      if (typeof text === "string") return text;
+      segments.push(latin1(kw) + "\n" + latin1(text));
     } else if (type === "iTXt") {
       const [kw, p] = splitNul(data);
       const compressed = data[p] === 1;
@@ -48,11 +58,8 @@ function parsePng(buf, segments) {
       const [tkw, textStart] = splitNul(data, afterLang);
       let body = data.subarray(textStart);
       if (compressed) {
-        try {
-          body = zlib.inflateSync(body);
-        } catch {
-          return "iTXt chunk failed to inflate";
-        }
+        body = inflateCapped(body, "iTXt");
+        if (typeof body === "string") return body;
       }
       segments.push(latin1(kw) + "\n" + utf8(tkw) + "\n" + utf8(body));
     } else if (type === "eXIf") {
@@ -85,7 +92,10 @@ function parseJpeg(buf, segments) {
 
 function parseWebp(buf, segments) {
   const bad = "truncated WebP chunk";
-  const end = Math.min(buf.readUInt32LE(4) + 8, buf.length);
+  const riffSize = buf.readUInt32LE(4);
+  // An understated RIFF size would hide trailing chunks from the scan.
+  if (riffSize < 4 || riffSize + 8 < buf.length) return bad;
+  const end = Math.min(riffSize + 8, buf.length);
   let off = 12;
   while (off < end) {
     if (off + 8 > end) return bad;

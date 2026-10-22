@@ -111,13 +111,12 @@ export function makePng({ text = [], ztxt = [], itxt = [], exif = null, idatByte
   const head = [PNG_MAGIC, pngChunk("IHDR", ihdr)];
   const before = [];
   for (const { keyword, text: t } of text) before.push(pngChunk("tEXt", Buffer.concat([Buffer.from(keyword, "latin1"), z, Buffer.from(t, "latin1")])));
-  for (const { keyword, text: t } of ztxt) {
-    const body = corruptZtxt ? Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]) : zlib.deflateSync(Buffer.from(t, "latin1"));
+  for (const { keyword, text: t, deflated = null } of ztxt) {
+    const body = corruptZtxt ? Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]) : deflated ?? zlib.deflateSync(Buffer.from(t, "latin1"));
     before.push(pngChunk("zTXt", Buffer.concat([Buffer.from(keyword, "latin1"), z, Buffer.from([0]), body])));
   }
-  for (const { keyword, text: t, compressed = false } of itxt) {
-    const raw = Buffer.from(t, "utf8");
-    const body = compressed ? zlib.deflateSync(raw) : raw;
+  for (const { keyword, text: t, compressed = false, deflated = null } of itxt) {
+    const body = deflated ?? (compressed ? zlib.deflateSync(Buffer.from(t, "utf8")) : Buffer.from(t, "utf8"));
     before.push(pngChunk("iTXt", Buffer.concat([Buffer.from(keyword, "latin1"), z, Buffer.from([compressed ? 1 : 0, 0]), z, z, body])));
   }
   if (exif !== null) before.push(pngChunk("eXIf", Buffer.from(exif, "latin1")));
@@ -146,7 +145,7 @@ export function makeJpeg({ app1 = [], com = [], raw = null } = {}) {
   return Buffer.concat([soi, ...app1.map((s) => seg(0xe1, s)), ...com.map((s) => seg(0xfe, s)), Buffer.from([0xff, 0xda, 0x00, 0x02, 0xff, 0xd9])]);
 }
 
-export function makeWebp({ exif = null, xmp = null, raw = null } = {}) {
+export function makeWebp({ exif = null, xmp = null, raw = null, riffSize = null } = {}) {
   const chunk = (fourcc, data) => {
     const size = Buffer.alloc(4);
     size.writeUInt32LE(data.length);
@@ -161,6 +160,6 @@ export function makeWebp({ exif = null, xmp = null, raw = null } = {}) {
     body = Buffer.concat(parts);
   }
   const size = Buffer.alloc(4);
-  size.writeUInt32LE(4 + body.length);
+  size.writeUInt32LE(riffSize ?? 4 + body.length);
   return Buffer.concat([Buffer.from("RIFF", "latin1"), size, Buffer.from("WEBP", "latin1"), body]);
 }
