@@ -1,6 +1,6 @@
 # Picker scenarios
 
-Rewritten as behaviour from the original's tests of the key map, placement, search parser and view model.
+Rewritten from the original's tests.
 
 ## The hotkey toggles the picker
 
@@ -37,7 +37,7 @@ And an accented word is found by its unaccented, upper-case form.
 
 Covers: PICKER-6
 Given an image clip is selected
-Then the full-size image shows beside the list, and a text clip shows its whole text with matches highlighted.
+Then the full-size image shows beside the list.
 
 ## Pinning
 

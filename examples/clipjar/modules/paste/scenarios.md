@@ -1,6 +1,6 @@
 # Paste scenarios
 
-Rewritten as behaviour from the original's tests of the paster, the paste gate and the system adapters.
+Rewritten from the original's tests.
 
 ## A permitted paste
 
@@ -37,23 +37,9 @@ Given the app that was in front has quit
 When the user presses Return
 Then the clip stays on the clipboard and nothing is pasted, as when the picker was opened while the tool itself was in front.
 
-## A failed recency update does not undo a paste
-
-Covers: PASTE-7
-Given the history cannot be written right now
-When the user chooses a clip
-Then the paste still succeeds and the failure shows the usual storage banner.
-
 ## Quarantined location
 
 Covers: PASTE-8
 Given the app runs from the temporary location used for quarantined apps
 When the picker opens
 Then a banner asks the user to move the app to the Applications folder, and it cannot be dismissed.
-
-## The system prompt appears once
-
-Covers: PASTE-6
-Given the permission is missing
-When the user presses the banner's action twice in one launch
-Then the system's permission prompt appears once.

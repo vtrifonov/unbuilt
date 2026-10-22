@@ -1,6 +1,6 @@
 # History scenarios
 
-Rewritten as behaviour from the original's tests of ingestion, pruning, scrubbing and recovery.
+Rewritten from the original's tests.
 
 ## History survives a restart
 
@@ -21,7 +21,7 @@ Then no clip is added and the original moves to the top.
 Covers: HISTORY-4
 Given a low count limit and a pinned oldest clip
 When newer clips exceed the limit
-Then the oldest unpinned clips are removed and the pinned clip stays, without using up a place.
+Then the oldest unpinned clips go and the pinned clip stays.
 
 ## Deleted text leaves no trace
 

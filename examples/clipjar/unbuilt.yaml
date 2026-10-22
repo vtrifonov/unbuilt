@@ -32,3 +32,5 @@ modules:
 substitutions:
   - storage
   - hotkeys
+public_hosts:
+  - developer.apple.com

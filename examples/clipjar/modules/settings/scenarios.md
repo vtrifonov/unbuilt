@@ -1,6 +1,6 @@
 # Settings scenarios
 
-Rewritten as behaviour from the original's tests of the settings store and the retention changer.
+Rewritten from the original's tests.
 
 ## Lowering the limit asks first
 
@@ -8,13 +8,6 @@ Covers: SETTINGS-1, SETTINGS-2
 Given 300 unpinned clips and a limit of 1,000
 When the user chooses a limit of 200
 Then a confirmation says 100 clips would be removed, cancelling keeps everything, and confirming removes the 100 oldest.
-
-## A harmless change applies at once
-
-Covers: SETTINGS-1
-Given 50 clips
-When the user raises the limit and sets an age limit
-Then no confirmation appears and both choices survive a restart.
 
 ## A timed pause ends by itself
 
@@ -44,20 +37,12 @@ Given pinned and unpinned clips
 When the user chooses Clear History and confirms
 Then every unpinned clip is erased and the pinned ones remain.
 
-## Launch at login
-
-Covers: SETTINGS-7
-Given the system requires approval for login items
-When the user turns launch at login on
-Then the window says approval is needed and offers the login items page.
-
 ## The menu bar icon
 
 Covers: SETTINGS-8
 Given the tool is running
 When the user clicks the icon, then right-clicks it
-Then the click toggles the picker and the right click opens a menu of five entries
-And Pause for 15 Minutes dims the icon and says so in its tooltip.
+Then the click toggles the picker and the right click opens a five-entry menu.
 
 ## Nothing leaves the machine
 

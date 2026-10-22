@@ -1,6 +1,6 @@
 # Capture scenarios
 
-Rewritten as behaviour from the original's tests of the watcher, filter, reader and extractor.
+Rewritten from the original's tests.
 
 ## A copy becomes a clip
 

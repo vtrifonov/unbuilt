@@ -1,6 +1,6 @@
 # Settings requirements
 
-- **SETTINGS-1** (MUST) (inferred) The user can choose how many clips to keep: 200, 1,000, 5,000, 10,000 or unlimited, defaulting to 1,000. They can also remove clips older than a day, a week, a month, three months or a year, defaulting to no age limit. Choices persist and apply at once.
+- **SETTINGS-1** (MUST) (inferred) The user can choose how many clips to keep: 200, 1,000, 5,000, 10,000 or unlimited, defaulting to 1,000. They can also remove clips older than 1 day, 1 week, 30 days, 90 days or 1 year, defaulting to no age limit. Choices persist and apply at once.
 - **SETTINGS-2** (MUST) (inferred) A change of limits that would remove clips waits for confirmation, which says how many clips would go. Cancelling keeps the previous limits.
 - **SETTINGS-3** (MUST) (inferred) The user can pause capture until resumed, or for fifteen minutes. A timed pause ends by itself, even if it expires while the Mac sleeps or the tool is not running. The paused state shows in the picker and on the menu bar icon.
 - **SETTINGS-4** (MUST) (inferred) The ignore list can be edited: apps can be added and removed. Initially it holds the system's keychain and password apps and well-known password managers, and it shows a clear empty state when emptied.

@@ -112,3 +112,21 @@ test("template files and comments (R-TPL-2, R-TPL-3, R-TPL-4)", () => {
     });
   }
 });
+
+const EXAMPLE = path.join(ROOT, "examples/clipjar");
+test("example passes the validator (R-EX-13)", () => {
+  const r = runJson([EXAMPLE, "--json"]);
+  assert.equal(r.code, 0, JSON.stringify(r.result)); assert.deepEqual(r.result.errors, []);
+});
+test("example caps, inferred MUSTs, facts and denylist (R-EX-3, R-EX-6, R-EX-7, R-EX-14, R-EX-15)", () => {
+  const texts = mdFiles(EXAMPLE).map((f) => fs.readFileSync(f, "utf8"));
+  const all = texts.join("\n") + "\n" + fs.readFileSync(path.join(EXAMPLE, "unbuilt.yaml"), "utf8");
+  assert.ok(texts.reduce((n, t) => n + countWords(t), 0) <= 6000);
+  const y = fs.readFileSync(path.join(EXAMPLE, "unbuilt.yaml"), "utf8");
+  assert.ok((y.match(/^\s+- id: /gm) || []).length <= 5);
+  assert.match(y, /^interview: none$/m);
+  for (const t of texts) for (const line of t.split("\n")) if (/^- \*\*[A-Z]{2,8}-\d+\*\* \(MUST\)/.test(line)) assert.match(line, /^- \*\*[A-Z]{2,8}-\d+\*\* \(MUST\) \(inferred\) /, line);
+  for (const fact of ["Swift 6.2", "Makefile", "macOS 14", "MIT", "GRDB", "KeyboardShortcuts", "Accessibility", "notarized", "Translocation", "Application Support/Clipjar", "network"]) assert.ok(all.toLowerCase().includes(fact.toLowerCase()), fact);
+  for (const vendor of ["Google", "Microsoft", "Amazon", "Slack", "Atlassian"]) assert.ok(!all.toLowerCase().includes(vendor.toLowerCase()), vendor);
+  assert.ok(!fs.existsSync(path.join(EXAMPLE, "retrospective.md")));
+});
