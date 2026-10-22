@@ -52,9 +52,10 @@ export function scanInstance(root) {
   const included = [];
   const excluded = [];
   const skipped = [];
+  const walkDirs = new Set(walk.dirs);
   for (const entry of walk.entries) {
     if (entry.kind === "unreadable") {
-      if (!hasDotComponent(entry.path) && (walk.dirs.includes(entry.path) || /\.md$/i.test(entry.path) || entry.path === "unbuilt.yaml")) throw fail(entry.path, "cannot be read");
+      if (!hasDotComponent(entry.path) && (walkDirs.has(entry.path) || /\.md$/i.test(entry.path) || entry.path === "unbuilt.yaml")) throw fail(entry.path, "cannot be read");
       continue;
     }
     if (SKIP_KINDS.includes(entry.kind)) {
@@ -71,7 +72,8 @@ export function scanInstance(root) {
   }
   if (included.length > MAX_FILES) throw fail(".", `more than ${MAX_FILES} included files`);
   if (included.reduce((sum, e) => sum + e.size, 0) > MAX_TOTAL_BYTES) throw fail(".", `included files total more than ${MAX_TOTAL_BYTES} bytes`);
-  const dirs = new Set(walk.dirs.filter((d) => !walk.nodeModulesDirs.includes(d)));
+  const nodeModules = new Set(walk.nodeModulesDirs);
+  const dirs = new Set(walk.dirs.filter((d) => !nodeModules.has(d)));
   return { included, excluded, skipped, dirs };
 }
 

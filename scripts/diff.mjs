@@ -27,9 +27,21 @@ export function parseArgs(argv) {
 
 const isObject = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 
+function stripTrailingSlashes(raw) {
+  let e = raw.length;
+  while (e > 0 && raw.charCodeAt(e - 1) === 47) e--;
+  return raw.slice(0, e);
+}
+
+function trimmedEnd(lines, start, end) {
+  let e = end;
+  while (e > start && /^[ \t]*$/.test(lines[e - 1])) e--;
+  return e;
+}
+
 export function modulePath(raw, dirs) {
   if (typeof raw !== "string") return null;
-  const p = raw.replace(/\/+$/, "");
+  const p = stripTrailingSlashes(raw);
   if (p === "" || p.startsWith("/") || path.isAbsolute(p)) return null;
   if (p.split("/").some((s) => s === "" || s === "." || s === "..")) return null;
   return dirs.has(p) ? p : null;
@@ -45,7 +57,7 @@ function loadSide(root, side) {
       text.set(entry.path, raw.replace(/^\ufeff/, "").replace(/\r\n/g, "\n"));
     }
     if (!text.has("unbuilt.yaml")) {
-      throw new InstanceError(`unbuilt.yaml: ${skipped.some((s) => s.path === "unbuilt.yaml") ? "not a regular file" : "missing"}`);
+      throw new InstanceError(`unbuilt.yaml: ${dirs.has("unbuilt.yaml") || skipped.some((s) => s.path === "unbuilt.yaml") ? "not a regular file" : "missing"}`);
     }
     const { value: meta, errors } = parse(text.get("unbuilt.yaml"));
     if (errors.length > 0) throw new InstanceError(`unbuilt.yaml: ${sanitize(errors[0].message)}`);
@@ -115,6 +127,7 @@ const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 export function scenarios(side) {
   const byKey = new Map();
   const preamble = new Map();
+  const citeSets = new Map();
   for (const m of side.modules) {
     const file = m.path === null ? null : `${m.path}/scenarios.md`;
     if (file === null || !side.text.has(file)) continue;
@@ -123,16 +136,20 @@ export function scenarios(side) {
     const sections = findScenarioSections(blanked.join("\n"));
     preamble.set(file, raw.slice(0, sections.length > 0 ? sections[0].startLine - 1 : raw.length).join("\n"));
     for (const s of sections) {
-      let lines = raw.slice(s.startLine, s.endLine);
-      while (lines.length > 0 && /^[ \t]*$/.test(lines[lines.length - 1])) lines = lines.slice(0, -1);
-      const cites = findCitations(blanked.slice(s.startLine, s.endLine).join("\n"), side.prefixes).map((c) => c.id);
+      const body = raw.slice(s.startLine, trimmedEnd(raw, s.startLine, s.endLine)).join("\n");
       const key = `${m.id}\u0000${s.title}`;
-      const entry = byKey.get(key) ?? { module: m.id, title: s.title, bodies: [], cites: [] };
-      entry.bodies.push(lines.join("\n"));
-      entry.cites = [...new Set([...entry.cites, ...cites])].sort(compareIds);
-      byKey.set(key, entry);
+      let entry = byKey.get(key);
+      if (!entry) {
+        entry = { module: m.id, title: s.title, bodies: [], cites: [] };
+        byKey.set(key, entry);
+        citeSets.set(entry, new Set());
+      }
+      entry.bodies.push(body);
+      const set = citeSets.get(entry);
+      for (const c of findCitations(blanked.slice(s.startLine, s.endLine).join("\n"), side.prefixes)) set.add(c.id);
     }
   }
+  for (const [entry, set] of citeSets) entry.cites = [...set].sort(compareIds);
   return { byKey, preamble };
 }
 
@@ -184,9 +201,7 @@ export function milestones(side) {
     if (!byNumber.has(number)) {
       const coversLine = blanked.slice(i + 1, end).find((l) => /^Covers:/.test(l)) ?? "";
       const covers = [...new Set(findCitations(coversLine, side.prefixes).map((c) => c.id))].sort(compareIds);
-      let lines = raw.slice(i, end);
-      while (lines.length > 0 && /^[ \t]*$/.test(lines[lines.length - 1])) lines = lines.slice(0, -1);
-      byNumber.set(number, { title: m[2], covers, raw: lines.join("\n") });
+      byNumber.set(number, { title: m[2], covers, raw: raw.slice(i, trimmedEnd(raw, i, end)).join("\n") });
       for (let k = i; k < end; k++) claimed.add(k);
     }
     i = end - 1;
@@ -199,7 +214,8 @@ function compareMilestones(oldS, newS, out) {
     const n = newS.byNumber.get(number);
     if (!n) out.removed.push({ number, title: o.title });
     else if (o.raw !== n.raw) {
-      const entry = { number, covers_added: n.covers.filter((c) => !o.covers.includes(c)), covers_removed: o.covers.filter((c) => !n.covers.includes(c)), title_changed: o.title !== n.title };
+      const [oc, nc] = [new Set(o.covers), new Set(n.covers)];
+      const entry = { number, covers_added: n.covers.filter((c) => !oc.has(c)), covers_removed: o.covers.filter((c) => !nc.has(c)), title_changed: o.title !== n.title };
       Object.defineProperty(entry, "title", { value: n.title, enumerable: false });
       out.changed.push(entry);
     }
@@ -219,6 +235,11 @@ function compareFiles(o, n, ctx, out) {
   for (const [side, other] of [[o, newBy], [n, oldBy]]) {
     for (const m of side.modules) if (m.path !== null && !other.has(m.id)) dirPrefixes.push(`${m.path}/`);
   }
+  const dirPrefixSet = new Set(dirPrefixes);
+  const underAdded = (p) => {
+    for (let i = p.indexOf("/"); i !== -1; i = p.indexOf("/", i + 1)) if (dirPrefixSet.has(p.slice(0, i + 1))) return true;
+    return false;
+  };
   const subs = new Set([...o.substitutions, ...n.substitutions].map((s) => `substitutions/${s}.md`));
   const accountedOn = (side, otherBy) => {
     const set = new Set(["SPEC.md", "BUILD.md", "unbuilt.yaml", ...subs]);
@@ -228,7 +249,7 @@ function compareFiles(o, n, ctx, out) {
       set.add(`${m.path}/scenarios.md`);
       if (otherBy.get(m.id)?.path != null) set.add(`${m.path}/problem.md`);
     }
-    return (p) => set.has(p) || dirPrefixes.some((x) => p.startsWith(x));
+    return (p) => set.has(p) || underAdded(p);
   };
   const oldAccounted = accountedOn(o, newBy);
   const newAccounted = accountedOn(n, oldBy);
@@ -251,7 +272,7 @@ function compareFiles(o, n, ctx, out) {
     compare(`${op}scenarios.md`, `${np}scenarios.md`, ctx.oldScen.preamble.get(`${op}scenarios.md`) ?? null, ctx.newScen.preamble.get(`${np}scenarios.md`) ?? null);
     compare(`${op}problem.md`, `${np}problem.md`, residual(o, `${op}problem.md`, none, 0), residual(n, `${np}problem.md`, none, 0));
   }
-  const rawPath = (m) => (typeof m.rawPath === "string" ? m.rawPath.replace(/\/+$/, "") : JSON.stringify(m.rawPath));
+  const rawPath = (m) => (typeof m.rawPath === "string" ? stripTrailingSlashes(m.rawPath) : JSON.stringify(m.rawPath));
   const keys = new Set([...Object.keys(o.meta ?? {}), ...Object.keys(n.meta ?? {})]);
   keys.delete("modules");
   keys.delete("substitutions");

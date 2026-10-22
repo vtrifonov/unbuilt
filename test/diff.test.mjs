@@ -612,3 +612,52 @@ test("writes nothing (R-DIF-6)", (t) => {
   runDiff([c.oldDir, c.newDir, "--json"]);
   assert.deepEqual([tree(c.oldDir), tree(c.newDir)], before);
 });
+
+const FAST_MS = 2000;
+const timed = (fn) => {
+  const t0 = performance.now();
+  const r = fn();
+  return { ...r, ms: performance.now() - t0 };
+};
+
+test("trailing blank lines after the last section stay linear: 200,000 blank lines under 2 s (R-DIF-30)", (t) => {
+  const tail = "\n## Tail\n\nCovers: CORE-1\nGiven x\n";
+  const r = timed(() => diffJson(t, ({ oldDir, newDir }) => {
+    append(oldDir, CORE_SCEN, tail);
+    append(newDir, CORE_SCEN, tail + "\n".repeat(200000));
+  }));
+  assert.ok(r.ms < FAST_MS, `${r.ms.toFixed(0)} ms`);
+  assert.equal(r.code, 0, r.stderr);
+});
+
+test("same-titled sections with distinct citations stay linear: 20,000 sections under 2 s (R-DIF-31)", (t) => {
+  let sections = "";
+  for (let i = 1; i <= 20000; i++) sections += `\n## Dup\n\nCovers: CORE-${i}\n`;
+  const r = timed(() => diffJson(t, ({ newDir }) => append(newDir, CORE_SCEN, sections)));
+  assert.ok(r.ms < FAST_MS, `${r.ms.toFixed(0)} ms`);
+  assert.equal(r.code, 1, r.stderr);
+  assert.equal(r.json.scenarios.added.length, 1);
+  const [dup] = r.json.scenarios.added;
+  assert.equal(dup.title, "Dup");
+  assert.equal(dup.cites.length, 20000);
+  assert.deepEqual([dup.cites[0], dup.cites[1], dup.cites[19999]], ["CORE-1", "CORE-2", "CORE-20000"]);
+});
+
+test("a module path with 60,000 trailing slashes stays linear (R-DIF-23)", (t) => {
+  const slashes = "/".repeat(60000);
+  const r = timed(() => diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", "path: modules/core #", `path: "modules/corex${slashes}" #`)));
+  assert.ok(r.ms < FAST_MS, `${r.ms.toFixed(0)} ms`);
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(r.json.requirements.removed.map((e) => e.id), ["CORE-1", "CORE-2"]);
+  assert.deepEqual(r.json.files.changed, ["unbuilt.yaml"]);
+});
+
+test("a directory named unbuilt.yaml is not a regular file (R-DIF-3)", (t) => {
+  const c = sides(t);
+  fs.rmSync(path.join(c.newDir, "unbuilt.yaml"));
+  fs.mkdirSync(path.join(c.newDir, "unbuilt.yaml"));
+  const r = runDiff([c.oldDir, c.newDir]);
+  assert.equal(r.code, 2);
+  assert.equal(r.stdout, "");
+  assert.ok(r.stderr.startsWith("new: unbuilt.yaml: not a regular file"), r.stderr);
+});
