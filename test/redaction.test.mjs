@@ -145,6 +145,20 @@ test("url with userinfo yields one hostname finding on the host", () => {
   assert.equal(f[0].column, 15);
   assert.deepEqual(scanText("https://alice@github.com/x"), []);
 });
+test("url authority: password userinfo is a secret, host is after the last @ with the port stripped", () => {
+  const pw = ["pw", "12345678"].join("");
+  const a = scanText(`https://user:${pw}@build01.widgets-intranet.com/`);
+  assert.deepEqual(a.map((x) => x.pattern), ["secret", "hostname"]);
+  assert.equal(a[0].match, `user:${pw}`); assert.equal(a[0].column, 9);
+  assert.equal(a[1].match, "build01.widgets-intranet.com");
+  assert.equal(maskText(`https://user:${pw}@build01.widgets-intranet.com/`), "https://us…@bu…/");
+  const b = scanText(`https://user:${pw}@grafana/x`);
+  assert.deepEqual(b.map((x) => [x.pattern, x.match]), [["secret", `user:${pw}`], ["hostname", "grafana"]]);
+  assert.equal(maskText(`https://user:${pw}@grafana/x`), "https://us…@gr…/x");
+  const c = scanText("https://alice@build01.widgets-intranet.com:8443/");
+  assert.deepEqual(c.map((x) => [x.pattern, x.match, x.column]), [["hostname", "build01.widgets-intranet.com", 15]]);
+  assert.deepEqual(scanText(`https://user:${pw}@github.com/x`).map((x) => x.pattern), ["secret"]);
+});
 test("isHostAllowed normalises and unions with defaults", () => {
   assert.equal(isHostAllowed("github.com", { allowHosts: ["acme.com"], exactHosts: [] }), true);
   assert.equal(isHostAllowed("vpn.acme.com", { allowHosts: ["ACME.com"], exactHosts: [] }), true);
