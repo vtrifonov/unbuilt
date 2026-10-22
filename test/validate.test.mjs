@@ -938,7 +938,29 @@ test("leak hits are capped at 10,000 per run; each file past the cap gets one su
   const summaries = leaks.filter((f) => f.message.includes("not listed"));
   assert.equal(leaks.length - summaries.length, 10000);
   assert.equal(summaries.length, 5);
-  assert.ok(summaries.every((f) => f.message === "100 more matches not listed (FORMAT.md §7)" && !("line" in f)), JSON.stringify(summaries));
+  assert.ok(summaries.every((f) => f.message === "100 matches not listed (run limit of 10,000 reached) (FORMAT.md §7)" && !("line" in f)), JSON.stringify(summaries));
+});
+test("a summary says match for one and names the run limit when nothing was listed for the file (correctness recheck 29)", (t) => {
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  const emails = (n) => Array.from({ length: n }, (_, i) => `u${i}@widgets-intranet.com`).join(" ");
+  // Paths are scanned first: the hostname in the last file's name takes one run slot (leak-hostname, listed).
+  // a.md: 101 emails, so 100 are listed and one is summarised before the run cap is reached. With 98 files of 100
+  // and one of 99, the run holds exactly 10,000 hits after n098.md.
+  writeIn(dir, "notes/a.md", "# N\n\n" + emails(101) + "\n");
+  for (let i = 0; i < 99; i++) writeIn(dir, `notes/n${String(i).padStart(3, "0")}.md`, "# N\n\n" + emails(i === 98 ? 99 : 100) + "\n");
+  // Past the run cap: one file with a single email, one with two whose name holds a hostname to be masked.
+  writeIn(dir, "notes/z1.md", "# N\n\n" + emails(1) + "\n");
+  writeIn(dir, "notes/zz-build01.widgets-intranet.com.md", "# N\n\n" + emails(2) + "\n");
+  const { code, result } = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(code, 1);
+  const summaries = result.errors.filter((f) => f.message.includes("not listed")).map((f) => [f.file, f.message]);
+  assert.deepEqual(summaries.map(([, m]) => m), [
+    "1 more match not listed (FORMAT.md §7)",
+    "1 match not listed (run limit of 10,000 reached) (FORMAT.md §7)",
+    "2 matches not listed (run limit of 10,000 reached) (FORMAT.md §7)",
+  ]);
+  assert.deepEqual(summaries.map(([f]) => f).slice(0, 2), ["notes/a.md", "notes/z1.md"]);
+  assert.equal(summaries[2][0], "notes/zz….md");
 });
 test("a 1 MiB colonless unbuilt.yaml line exits 1 within 2 s with a short yaml-parse line (security recheck 18)", (t) => {
   const dir = makeTempDir(t); copyMinimalValid(dir);

@@ -29,7 +29,7 @@ For each finding, say in one sentence what failed, then propose one concrete fix
 
 Severity is the default. A rule that emits both levels lists both.
 
-The walk skips any entry named `.git`, file or directory. The `leak-*` rules scan every text file, every file and directory path relative to the instance root, and the metadata of every image, including a base64 png, jpeg or webp `data:` URI inside a text file. A path hit has no line. Each finding masks the match and masks its `file` column per path segment. Each rule lists at most 100 hits per pattern per file and 10,000 per run; past a cap, one `N more matches not listed` finding per file counts the rest.
+The walk skips any entry named `.git`, file or directory. The `leak-*` rules scan every text file, every file and directory path relative to the instance root, and the metadata of every image, including a base64 png, jpeg or webp `data:` URI inside a text file. A path hit has no line. Each finding masks the match and masks its `file` column per path segment. Each rule lists at most 100 hits per pattern per file and 10,000 per run; past a cap, one `N more matches not listed` finding per file counts the rest, or `N matches not listed (run limit of 10,000 reached)` when none of that file's hits are listed.
 
 | Rule | Checks | Severity |
 |---|---|---|

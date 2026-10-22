@@ -396,15 +396,23 @@ function scanInstance(ctx, patterns) {
 }
 
 // A summary hit (`more`) stands for the hits past the caps; a rule sums its patterns' summaries into one finding per
-// file (amendment 7e).
+// file (amendment 7e). A file with no listed hit for the rule lost them all to the run cap, so its summary says so
+// rather than "more" (correctness recheck 29).
 const leakRule = (rule, patterns, describe) => (ctx) => {
   const out = [];
   const more = new Map();
+  const listed = new Set();
   for (const h of scanInstance(ctx, patterns)) {
-    if (h.more === undefined) out.push(finding("error", rule, h.file, h.line, describe(maskMatch(h.match), h)));
-    else more.set(h.file, (more.get(h.file) ?? 0) + h.more);
+    if (h.more === undefined) {
+      listed.add(h.file);
+      out.push(finding("error", rule, h.file, h.line, describe(maskMatch(h.match), h)));
+    } else more.set(h.file, (more.get(h.file) ?? 0) + h.more);
   }
-  for (const [file, n] of more) out.push(finding("error", rule, file, null, `${n} more matches not listed (FORMAT.md §7)`));
+  for (const [file, n] of more) {
+    const matches = n === 1 ? "match" : "matches";
+    const text = listed.has(file) ? `${n} more ${matches} not listed` : `${n} ${matches} not listed (run limit of 10,000 reached)`;
+    out.push(finding("error", rule, file, null, `${text} (FORMAT.md §7)`));
+  }
   return out;
 };
 
