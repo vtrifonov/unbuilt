@@ -6,20 +6,39 @@ export const CITATION_RE = /\b([A-Z]{2,8})-([1-9][0-9]*)\b/g;
 // CRLF files: drop the \r so `.*$`-style patterns match; line counts are unchanged.
 const toLf = (text) => text.replace(/\r\n/g, "\n");
 
+// CommonMark edges (spec amendment 8f): a backtick fence opener's info string cannot contain a backtick,
+// a closing fence is fence characters plus optional whitespace only, and an unterminated `<!--` is literal text.
+function fenceOpener(line) {
+  const m = /^\s*(`{3,}|~{3,})(.*)$/.exec(line);
+  if (!m || (m[1][0] === "`" && m[2].includes("`"))) return null;
+  return { ch: m[1][0], len: m[1].length };
+}
+
+function closesFence(line, fence) {
+  const m = /^\s*(`+|~+)[ \t]*$/.exec(line);
+  return m !== null && m[1][0] === fence.ch && m[1].length >= fence.len;
+}
+
 export function blankCommentsAndFences(text) {
+  const lf = toLf(text);
+  // A comment is terminated only when a `-->` follows its `<!--` somewhere later in the file.
+  const lastClose = lf.lastIndexOf("-->");
   const out = [];
   let fence = null;
   let inComment = false;
-  for (const line of toLf(text).split("\n")) {
+  let offset = 0;
+  for (const line of lf.split("\n")) {
+    const lineStart = offset;
+    offset += line.length + 1;
     if (fence) {
       out.push("");
-      if (line.trimStart().startsWith(fence.ch.repeat(fence.len))) fence = null;
+      if (closesFence(line, fence)) fence = null;
       continue;
     }
     if (!inComment) {
-      const m = /^\s*(`{3,}|~{3,})/.exec(line);
-      if (m) {
-        fence = { ch: m[1][0], len: m[1].length };
+      const opener = fenceOpener(line);
+      if (opener) {
+        fence = opener;
         out.push("");
         continue;
       }
@@ -34,7 +53,7 @@ export function blankCommentsAndFences(text) {
         i = j + 3;
       } else {
         const j = line.indexOf("<!--", i);
-        if (j < 0) {
+        if (j < 0 || lastClose < lineStart + j + 4) {
           kept += line.slice(i);
           break;
         }

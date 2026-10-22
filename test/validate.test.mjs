@@ -78,6 +78,24 @@ test("blankCommentsAndFences keeps line numbers and removes fences and comments 
   assert.equal(findAttempts(out, ["CORE"]).length, 0);
   assert.deepEqual(findCitations(out, ["CORE"]).map((c) => [c.id, c.line]), [["CORE-3", 7]]);
 });
+test("blankCommentsAndFences follows CommonMark on fence info strings, closing fences and unterminated comments (amendment 8f)", () => {
+  const decl = "- **CORE-3** (MUST) A note longer than the screen scrolls.";
+  const ids = (src) => findAttempts(blankCommentsAndFences(src), ["CORE"]).map((a) => [a.exact?.id, a.line]);
+  // An unterminated `<!--` is literal text, so the declaration after it survives.
+  assert.deepEqual(ids("# Core\n\nA note that starts with `<!--` is kept verbatim.\n\n" + decl + "\n"), [["CORE-3", 5]]);
+  // A backtick fence opener's info string cannot contain a backtick: this line is an inline code span.
+  assert.deepEqual(ids("# Core\n\n```code``` spans are shown in a monospace font.\n\n" + decl + "\n"), [["CORE-3", 5]]);
+  // A tilde fence opener may carry backticks in its info string.
+  assert.deepEqual(ids("~~~ `odd`\n- **CORE-4** (MUST) hidden.\n~~~\n" + decl + "\n"), [["CORE-3", 4]]);
+  // A closing fence is fence characters plus optional whitespace only; "```js" inside a fence does not close it.
+  assert.deepEqual(ids("```\n```js\n- **CORE-4** (MUST) hidden.\n```  \n" + decl + "\n"), [["CORE-3", 5]]);
+  // A longer run of the same character closes; the other character does not.
+  assert.deepEqual(ids("```\n~~~\n- **CORE-4** (MUST) hidden.\n`````\n" + decl + "\n"), [["CORE-3", 5]]);
+  // A terminated comment still blanks, even across lines and after an unterminated-looking earlier line.
+  assert.deepEqual(ids("<!-- one\n- **CORE-4** (MUST) hidden.\n-->\n" + decl + "\n"), [["CORE-3", 4]]);
+  assert.equal(blankCommentsAndFences("c <!-- d --> e\n"), "c  e\n");
+  assert.equal(blankCommentsAndFences("x <!-- never closed\ny\n"), "x <!-- never closed\ny\n");
+});
 test("countLines and countWords (R-FMT-38)", () => {
   assert.equal(countLines(""), 0); assert.equal(countLines("a\nb\n"), 2); assert.equal(countLines("a\nb"), 2);
   assert.equal(countWords("a b\n\n c\n"), 3);
@@ -370,6 +388,17 @@ test("scenario coverage edge cases (rules 11–13)", (t) => {
   assert.ok(has(empty.result, "scenario-cites-id", "warning", "modules/core/scenarios.md"));
   const expected = runFixture(t, "should-has-scenario");
   assert.ok(expected.result.warnings.some((f) => f.rule === "should-has-scenario" && f.line === 4 && f.message === "CORE-2 is a SHOULD but no scenario cites it (FORMAT.md §5)"));
+});
+
+test("an unterminated <!-- or a one-line ```code``` span does not hide a later uncovered MUST (amendment 8f)", (t) => {
+  for (const marker of ["A note that starts with `<!--` is kept verbatim.", "```code``` spans are shown in a monospace font."]) {
+    const dir = makeTempDir(t); copyMinimalValid(dir);
+    writeIn(dir, "modules/core/SPEC.md", `# Core\n\n- **CORE-1** (MUST) A note is saved when the user presses the save key.\n- **CORE-2** (SHOULD) Saved notes are listed newest first.\n\n${marker}\n\n- **CORE-3** (MUST) A note longer than the screen scrolls.\n`);
+    const j = runJson([dir, "--json", "--today", "2026-10-22"]);
+    assert.equal(j.code, 1, marker);
+    assert.deepEqual(j.result.errors.map((f) => [f.rule, f.file, f.line]), [["must-has-scenario", "modules/core/SPEC.md", 8]], marker);
+    assert.match(j.result.errors[0].message, /^CORE-3 is a MUST/);
+  }
 });
 
 test("retired declarations: prefix check, bullet message, shared-dir dedupe (fix 1)", (t) => {
