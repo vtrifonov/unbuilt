@@ -125,50 +125,79 @@ function compareRequirements(oldDecl, newDecl, out) {
 const byCodeUnit = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 export function scenarios(side) {
-  const byKey = new Map();
   const preamble = new Map();
-  const citeSets = new Map();
   const parsed = new Map();
+  const groupSections = (sections) => {
+    const groups = new Map();
+    const citeSets = new Map();
+    for (const s of sections) {
+      let g = groups.get(s.title);
+      if (!g) {
+        g = { title: s.title, bodies: [], cites: [] };
+        groups.set(s.title, g);
+        citeSets.set(g, new Set());
+      }
+      g.bodies.push(s.body);
+      for (const id of s.cites) citeSets.get(g).add(id);
+    }
+    for (const [g, set] of citeSets) g.cites = [...set].sort(compareIds);
+    return groups;
+  };
   const load = (file) => {
     if (parsed.has(file)) return parsed.get(file);
     const raw = side.text.get(file).split("\n");
     const blanked = blankCommentsAndFences(side.text.get(file)).split("\n");
     const found = findScenarioSections(blanked.join("\n"));
-    const pre = raw.slice(0, found.length > 0 ? found[0].startLine - 1 : raw.length).join("\n");
+    preamble.set(file, raw.slice(0, found.length > 0 ? found[0].startLine - 1 : raw.length).join("\n"));
     const sections = found.map((s) => ({ title: s.title, body: raw.slice(s.startLine, trimmedEnd(raw, s.startLine, s.endLine)).join("\n"), cites: findCitations(blanked.slice(s.startLine, s.endLine).join("\n"), side.prefixes).map((c) => c.id) }));
-    parsed.set(file, { pre, sections });
+    parsed.set(file, { sections, groups: groupSections(sections) });
     return parsed.get(file);
   };
+  const files = new Map();
   for (const m of side.modules) {
     const file = m.path === null ? null : `${m.path}/scenarios.md`;
     if (file === null || !side.text.has(file)) continue;
-    const { pre, sections } = load(file);
-    preamble.set(file, pre);
-    for (const s of sections) {
-      const key = `${m.id}\u0000${s.title}`;
-      let entry = byKey.get(key);
-      if (!entry) {
-        entry = { module: m.id, title: s.title, bodies: [], cites: [] };
-        byKey.set(key, entry);
-        citeSets.set(entry, new Set());
-      }
-      entry.bodies.push(s.body);
-      const set = citeSets.get(entry);
-      for (const id of s.cites) set.add(id);
-    }
+    const key = String(m.id);
+    if (!files.has(key)) files.set(key, { module: m.id, files: [] });
+    files.get(key).files.push(file);
   }
-  for (const [entry, set] of citeSets) entry.cites = [...set].sort(compareIds);
-  return { byKey, preamble };
+  const merged = new Map();
+  const byModule = new Map();
+  for (const [key, { module, files: list }] of files) {
+    if (list.length === 1) {
+      byModule.set(key, { module, groups: load(list[0]).groups });
+      continue;
+    }
+    const joined = list.join("\u0000");
+    if (!merged.has(joined)) merged.set(joined, groupSections(list.flatMap((f) => load(f).sections)));
+    byModule.set(key, { module, groups: merged.get(joined) });
+  }
+  return { byModule, preamble };
 }
 
+const NO_GROUPS = new Map();
+
 function compareScenarios(oldS, newS, out) {
-  const item = (e) => ({ module: e.module, title: e.title, cites: e.cites });
-  for (const [key, o] of oldS.byKey) {
-    const n = newS.byKey.get(key);
-    if (!n) out.removed.push(item(o));
-    else if (JSON.stringify(o.bodies) !== JSON.stringify(n.bodies)) out.changed.push(item(n));
-  }
-  for (const [key, n] of newS.byKey) if (!oldS.byKey.has(key)) out.added.push(item(n));
+  const pairs = new Map();
+  const diffGroups = (og, ng) => {
+    if (!pairs.has(og)) pairs.set(og, new Map());
+    const cache = pairs.get(og);
+    if (cache.has(ng)) return cache.get(ng);
+    const res = { removed: [], changed: [], added: [] };
+    for (const [title, o] of og) {
+      const n = ng.get(title);
+      if (!n) res.removed.push(o);
+      else if (JSON.stringify(o.bodies) !== JSON.stringify(n.bodies)) res.changed.push(n);
+    }
+    for (const [title, n] of ng) if (!og.has(title)) res.added.push(n);
+    cache.set(ng, res);
+    return res;
+  };
+  const emit = (module, res) => {
+    for (const k of Object.keys(res)) for (const g of res[k]) out[k].push({ module, title: g.title, cites: g.cites });
+  };
+  for (const [key, o] of oldS.byModule) emit(o.module, diffGroups(o.groups, newS.byModule.get(key)?.groups ?? NO_GROUPS));
+  for (const [key, n] of newS.byModule) if (!oldS.byModule.has(key)) emit(n.module, diffGroups(NO_GROUPS, n.groups));
   for (const list of Object.values(out)) list.sort((a, b) => byCodeUnit(a.module, b.module) || byCodeUnit(a.title, b.title));
 }
 

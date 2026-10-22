@@ -479,6 +479,20 @@ test("milestone title changed (R-DIF-37)", (t) => {
   assert.deepEqual(r.json.milestones.changed[0].covers_removed, []);
 });
 
+test("a changed milestone prints its new title in human mode and not in JSON (R-DIF-9, R-DIF-10)", (t) => {
+  const c = sides(t);
+  append(c.newDir, CORE, "- **CORE-3** (MAY) Notes can be pinned.\n");
+  edit(c.newDir, "BUILD.md", "## Milestone 1: Capture and list a note", "## Milestone 1: Capture a note");
+  edit(c.newDir, "BUILD.md", "Covers: CORE-1, CORE-2, INV-1", "Covers: CORE-1, CORE-2, CORE-3");
+  const human = runDiff([c.oldDir, c.newDir]);
+  assert.equal(human.code, 1, human.stderr);
+  const line = human.stdout.split("\n").filter((l) => l.startsWith("milestones.changed"));
+  assert.deepEqual(line, ['milestones.changed  1 "Capture a note" covers +CORE-3 -INV-1 title changed']);
+  const json = runDiff([c.oldDir, c.newDir, "--json"]);
+  assert.ok(!json.stdout.includes("Capture a note"), json.stdout);
+  assert.deepEqual(JSON.parse(json.stdout).milestones.changed, [{ number: 1, covers_added: ["CORE-3"], covers_removed: ["INV-1"], title_changed: true }]);
+});
+
 test("milestone comment only (R-DIF-37)", (t) => {
   const r = diffJson(t, ({ newDir }) => edit(newDir, "BUILD.md", "Covers: requirement IDs. Done when", "Covers: the requirement IDs. Done when"));
   assert.deepEqual(r.json.milestones.changed, [noChange]);
@@ -643,9 +657,9 @@ test("same-titled sections with distinct citations stay linear: 20,000 sections 
   assert.deepEqual([dup.cites[0], dup.cites[1], dup.cites[19999]], ["CORE-1", "CORE-2", "CORE-20000"]);
 });
 
-test("a module path with 60,000 trailing slashes stays linear (R-DIF-23)", (t) => {
-  const slashes = "/".repeat(60000);
-  const r = timed(() => diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", "path: modules/core #", `path: "modules/corex${slashes}" #`)));
+test("a module path with a 100,000 slash run before a last character stays linear (R-DIF-23)", (t) => {
+  const slashes = "/".repeat(100000);
+  const r = timed(() => diffJson(t, ({ newDir }) => edit(newDir, "unbuilt.yaml", "path: modules/core #", `path: "modules/core${slashes}x" #`)));
   assert.ok(r.ms < FAST_MS, `${r.ms.toFixed(0)} ms`);
   assert.equal(r.code, 1, r.stderr);
   assert.deepEqual(r.json.requirements.removed.map((e) => e.id), ["CORE-1", "CORE-2"]);
@@ -762,6 +776,24 @@ test("many module entries sharing one path parse it once per side (review follow
   assert.equal(expected.title, "Fresh");
   assert.equal(many.json.scenarios.added.length, 1000);
   for (const id of ["CORE", ...Array.from({ length: 999 }, (_, i) => `M${i}`)]) assert.deepEqual(fresh(many.json, id), [{ ...expected, module: id }], id);
+});
+
+test("1,000 module entries sharing one path compare each large file once (review follow-up, R-DIF-23)", (t) => {
+  const sections = Array.from({ length: 20000 }, (_, i) => `\n## Section ${i}\n\nCovers: CORE-1\nGiven x\n`).join("");
+  const problem = (tail) => Array.from({ length: 200000 }, (_, i) => `line ${i}\n`).join("") + tail;
+  const extra = Array.from({ length: 1000 }, (_, i) => `  - id: M${i}\n    path: modules/core\n    maturity: shipped\n`).join("");
+  const r = timed(() => diffJson(t, ({ oldDir, newDir }) => {
+    for (const d of [oldDir, newDir]) {
+      edit(d, "unbuilt.yaml", CORE_MATURITY, CORE_MATURITY + extra);
+      append(d, CORE_SCEN, sections);
+    }
+    writeIn(oldDir, "modules/core/problem.md", problem("old\n"));
+    writeIn(newDir, "modules/core/problem.md", problem("new\n"));
+  }));
+  assert.ok(r.ms < FAST_MS, `${r.ms.toFixed(0)} ms`);
+  assert.equal(r.code, 1, r.stderr);
+  assert.deepEqual(r.json.files, { changed: ["modules/core/problem.md"], added: [], removed: [] });
+  assert.deepEqual(r.json.scenarios, { added: [], removed: [], changed: [] });
 });
 
 const BAD = "\u001b[31m\u202e\u0085\u200b\u2060\ufe0f\ufeff\u{e0049}\u{e0067}";
