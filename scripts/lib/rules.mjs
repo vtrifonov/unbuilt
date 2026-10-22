@@ -141,9 +141,9 @@ export function moduleIds(ctx) {
     if (m.id === null) continue;
     const line = ctx.yaml.lines.get(`modules[${m.index}].id`);
     const err = (msg) => out.push(finding("error", "module-ids", "unbuilt.yaml", line, msg));
-    if (!/^[A-Z]{2,8}$/.test(m.id)) err(`module id "${m.id}" must match ^[A-Z]{2,8}$ (FORMAT.md §5)`);
-    else if (m.id === "INV") err("module id INV is reserved for invariants (FORMAT.md §5)");
-    else if (seen.has(m.id)) err(`module id ${m.id} is declared twice (FORMAT.md §5)`);
+    if (!/^[A-Z]{2,8}$/.test(m.id)) err(`module id "${m.id}" must match ^[A-Z]{2,8}$ (FORMAT.md §3)`);
+    else if (m.id === "INV") err("module id INV is reserved for invariants (FORMAT.md §3)");
+    else if (seen.has(m.id)) err(`module id ${m.id} is declared twice (FORMAT.md §3)`);
     seen.add(m.id);
   }
   return out;

@@ -86,6 +86,31 @@ test("FORMAT.md section 7 and the leak-secret row state the credential and Beare
   }
   assert.match(fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8"), /a `Bearer` value needs header context or a digit and a letter in each half/);
 });
+test("every FORMAT.md section a script cites exists and holds the cited rule (CR-COR-24)", () => {
+  const section = (n) => {
+    const at = FORMAT.indexOf(`\n## ${n}. `);
+    assert.ok(at >= 0, `section ${n} missing`);
+    const next = FORMAT.indexOf("\n## ", at + 1);
+    return FORMAT.slice(at, next < 0 ? FORMAT.length : next);
+  };
+  const scripts = fs.readdirSync(path.join(ROOT, "scripts"), { recursive: true }).filter((f) => f.endsWith(".mjs")).map((f) => fs.readFileSync(path.join(ROOT, "scripts", f), "utf8"));
+  const lines = scripts.flatMap((s) => s.split("\n")).filter((l) => /FORMAT\.md §\d+/.test(l));
+  assert.ok(lines.length > 20);
+  for (const l of lines) for (const m of l.matchAll(/FORMAT\.md §(\d+)/g)) section(Number(m[1]));
+  const citing = (re) => lines.filter((l) => re.test(l)).map((l) => Number(/FORMAT\.md §(\d+)/.exec(l)[1]));
+  // module-ids: the ID pattern, uniqueness and INV rule live in section 3.
+  const ids = citing(/err\([`"]module id /);
+  assert.equal(ids.length, 3);
+  for (const n of ids) assert.match(section(n), /A module `id` matches `\^\[A-Z\]\{2,8\}\$`, is unique and is not `INV`/);
+  // budget-file-lines: the 5 MB scan limit is stated where the message cites it.
+  const big = citing(/too large to scan/);
+  assert.equal(big.length, 1);
+  assert.match(section(big[0]), /5 MB \(5,242,880 bytes\)/);
+  // file-types: image parse failures, including the inflate caps, cite the section that states the caps.
+  const ft = lines.filter((l) => /cannot be parsed for metadata scanning/.test(l) || /"file-types"/.test(l)).map((l) => Number(/FORMAT\.md §(\d+)/.exec(l)[1]));
+  assert.ok(ft.length >= 2);
+  for (const n of ft) assert.match(section(n), /1 MiB per image or embed and 8 MiB per run/);
+});
 test("FORMAT.md section 7 states how declined names are handled in unbuilt.yaml (R-FMT-43)", () => {
   const s7 = FORMAT.slice(FORMAT.indexOf("\n## 7. "), FORMAT.indexOf("\n## 8. "));
   assert.match(s7, /platform-blind/);

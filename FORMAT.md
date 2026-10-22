@@ -140,7 +140,7 @@ Leak rules scan each text file, each file and directory path, and each image's m
 - A URL's host is checked whatever its TLD, even a bare internal name.
 - A web route whose path starts with a `home` segment followed by a page name is a true positive for `leak-home-path`; reword it.
 
-**File types.** Every file is a regular file, either text or an image of an allowed type (section 8); an `.svg` must be a text file. Symbolic links, other binaries, unreadable files and `node_modules/` are unscannable, so not allowed (`file-types`). The walk skips any entry named `.git`. An unreadable or unsearchable instance directory exits 2.
+**File types.** Every file is a regular file, either text or an image of an allowed type (section 8); an `.svg` must be a text file. Symbolic links, other binaries, unreadable files and `node_modules/` are unscannable, so not allowed (`file-types`). Image metadata inflation is capped at 1 MiB per image or embed and 8 MiB per run (`file-types`). The walk skips any entry named `.git`. An unreadable or unsearchable instance directory exits 2.
 
 ## 8. Size budgets
 
@@ -155,7 +155,7 @@ All budgets are errors:
 
 Line count is the number of `\n` characters, plus one if the file is non-empty and lacks a final `\n`. Word count is the number of non-empty tokens after splitting each `.md` file's full text, comments and fences included, on whitespace.
 
-Image metadata inflation is capped at 1 MiB per image or embed and 8 MiB per run (`file-types`). Over-budget images and their embeds are not parsed. Leak hits past 100 per pattern per file or 10,000 per run are only counted.
+A text file over 5 MB (5,242,880 bytes) is too large to scan (`budget-file-lines`). Over-budget images and their embeds are not parsed. Leak hits past 100 per pattern per file or 10,000 per run are only counted.
 
 ## 9. What builders are promised
 
