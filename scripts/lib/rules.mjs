@@ -163,6 +163,56 @@ function modulePaths(ctx) {
   return out;
 }
 
+const attemptId = (a) => {
+  const m = /\*\*([A-Za-z]{2,8})-(\d+)\*\*/.exec(a.raw);
+  return m ? `${m[1]}-${m[2]}` : `${a.prefix}-${a.num}`;
+};
+
+function idFormat(ctx) {
+  const out = [];
+  for (const a of ctx.attempts) {
+    if (a.retiredShaped) continue;
+    const err = (msg) => out.push(finding("error", "id-format", a.file, a.line, msg));
+    if (a.indented || a.bullet !== "-") {
+      err(`${attemptId(a)}: declarations are top-level \`- \` bullets (FORMAT.md §5)`);
+    } else if (a.exact === null) {
+      err(`declaration of ${attemptId(a)} must match "- **ID-n** (MUST|SHOULD|MAY) text" or "- **ID-n** retired: reason" (FORMAT.md §5)`);
+    } else {
+      const expected = a.file === "SPEC.md" ? ["INV"] : ctx.modules.filter((m) => m.id !== null && `${m.dir}/SPEC.md` === a.file).map((m) => m.id);
+      if (!expected.includes(a.exact.prefix)) err(`${a.exact.id} is declared in ${a.file} but only ${expected.join(" or ")} ids are declared there (FORMAT.md §5)`);
+    }
+  }
+  return out;
+}
+
+function idUnique(ctx) {
+  const out = [];
+  const first = new Map();
+  for (const d of ctx.declarations) {
+    const prev = first.get(d.id);
+    if (prev) out.push(finding("error", "id-unique", d.file, d.line, `${d.id} is already declared at ${prev.file}:${prev.line} (FORMAT.md §5)`));
+    else first.set(d.id, d);
+  }
+  return out;
+}
+
+function idRetiredForm(ctx) {
+  const out = [];
+  for (const a of ctx.attempts) {
+    if (a.retiredShaped && !a.exact?.retired) {
+      const id = attemptId(a);
+      out.push(finding("error", "id-retired-form", a.file, a.line, `retired ${id} must be written "- **${id}** retired: reason" with no modality (FORMAT.md §5)`));
+    }
+  }
+  const retired = new Set(ctx.declarations.filter((d) => d.retired).map((d) => d.id));
+  for (const file of ctx.scenarioFiles) {
+    for (const c of ctx.citations.get(file) ?? []) {
+      if (retired.has(c.id)) out.push(finding("error", "id-retired-form", file, c.line, `${c.id} is retired and must not be cited (FORMAT.md §5)`));
+    }
+  }
+  return out;
+}
+
 RULES.push(
   { name: "required-files", fn: requiredFiles, needsMeta: false },
   { name: "module-files", fn: moduleFiles, needsMeta: true },
@@ -171,6 +221,9 @@ RULES.push(
   { name: "yaml-enums", fn: yamlEnums, needsMeta: true },
   { name: "module-ids", fn: moduleIds, needsMeta: true },
   { name: "module-paths", fn: modulePaths, needsMeta: true },
+  { name: "id-format", fn: idFormat, needsMeta: true },
+  { name: "id-unique", fn: idUnique, needsMeta: true },
+  { name: "id-retired-form", fn: idRetiredForm, needsMeta: true },
 );
 
 export function isCalendarDate(s) {

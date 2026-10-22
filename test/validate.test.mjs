@@ -294,3 +294,30 @@ test("duplicate module path is reported once, at the second module (R-YML-6, spe
     assert.ok(!result.errors.some((f) => f.rule === "module-paths" && f.message.includes("is not a directory")), p);
   }
 });
+
+test("id attempts (R-VAL-22, rules 8 and 10)", (t) => {
+  const spec = (lines) => (d) => writeIn(d, "modules/core/SPEC.md", "# Core\n\n" + lines.join("\n") + "\n");
+  const star = runFixture(t, "id-format", { mutate: spec(["* **CORE-1** (MUST) star.", "- **CORE-2** (SHOULD) ok."]) });
+  assert.ok(star.result.errors.some((f) => f.rule === "id-format" && f.line === 3 && f.message.includes("declarations are top-level")));
+  const indented = runFixture(t, "id-format", { mutate: spec(["  - **CORE-1** (MUST) indented.", "- **CORE-2** (SHOULD) ok."]) });
+  assert.ok(indented.result.errors.some((f) => f.rule === "id-format" && f.message.includes("declarations are top-level")));
+  const grey = runFixture(t, "id-format", { mutate: spec(["- **CORE-1** (MUST) A note is saved when the user presses the save key.", "- **CORE-2** (SHOULD) ok.", "- **CORE-4** (MUST) Show retired clips in grey."]) });
+  assert.ok(!grey.result.errors.some((f) => f.rule === "id-retired-form"));
+  for (const bad of ["- **core-1** (MUST) lower.", "- **PICK-1** (MUST) other module.", "- **CORE-01** (MUST) zero.", "- **CORE-1** (must) lower modality."]) {
+    const r = runFixture(t, "id-format", { mutate: spec([bad, "- **CORE-2** (SHOULD) ok."]) });
+    assert.ok(r.result.errors.some((f) => f.rule === "id-format" && f.line === 3), bad);
+  }
+  const glossary = runFixture(t, "id-format", { mutate: (d) => { spec(["- **CORE-1** (MUST) A note is saved when the user presses the save key.", "- **CORE-2** (SHOULD) ok."])(d); writeIn(d, "SPEC.md", readIn(d, "SPEC.md").replace("- **Note**: a short piece of text the user typed.", "- **UTF-8**: the text encoding of captured clips.")); } });
+  assert.ok(!glossary.result.errors.some((f) => f.rule === "id-format"));
+});
+test("retired forms and retired citations (rule 10)", (t) => {
+  const a = runFixture(t, "id-retired-form", { mutate: (d) => writeIn(d, "modules/core/SPEC.md", "# Core\n\n- **CORE-1** (MUST) A note is saved when the user presses the save key.\n- **CORE-2** (MUST) retired\n") });
+  assert.ok(has(a.result, "id-retired-form", "error", "modules/core/SPEC.md"));
+  assert.ok(!a.result.errors.some((f) => f.rule === "id-format"));
+  const b = runFixture(t, "id-retired-form", { mutate: (d) => writeIn(d, "modules/core/SPEC.md", "# Core\n\n- **CORE-1** (MUST) A note is saved when the user presses the save key.\n- **CORE-2** retired: superseded\n") });
+  assert.ok(b.result.errors.some((f) => f.rule === "id-retired-form" && f.file === "modules/core/scenarios.md" && f.message.includes("must not be cited")));
+});
+test("id-unique names the first declaration (rule 9)", (t) => {
+  const { result } = runFixture(t, "id-unique");
+  assert.ok(result.errors.some((f) => f.rule === "id-unique" && f.line === 5 && f.message.includes("modules/core/SPEC.md:3")));
+});
