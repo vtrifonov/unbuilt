@@ -146,3 +146,40 @@ test("CHANGELOG sections (R-DOC-4)", () => {
   assert.ok(md.indexOf("\n## Format\n") > 0 && md.indexOf("\n## Plugin\n") > md.indexOf("\n## Format\n"));
   assert.match(md, /### 1 /); assert.match(md, /### 0\.1\.0 /);
 });
+
+import { walkInstance, readText } from "../scripts/lib/walk.mjs";
+import { scanText } from "../scripts/lib/redaction.mjs";
+import { countLines } from "../scripts/lib/markdown.mjs";
+const repoFiles = () => walkInstance(ROOT).entries.filter((e) => e.kind === "file");
+test("layout (R-REPO-1..5, R-PKG-5)", () => {
+  const top = fs.readdirSync(ROOT, { withFileTypes: true }).filter((d) => d.isDirectory() && d.name !== ".git" && d.name !== "node_modules").map((d) => d.name).sort();
+  assert.deepEqual(top, [".claude-plugin", ".github", "examples", "prompts", "scripts", "skills", "template", "test"]);
+  for (const p of ["README.md", "FORMAT.md", "CHANGELOG.md", "LICENSE", "package.json", ".gitignore", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "skills/extract/SKILL.md", "skills/build/SKILL.md", "skills/validate/SKILL.md", "prompts/extract.md", "prompts/build.md", "prompts/validate.md", "scripts/validate.mjs", "scripts/lib/yaml-subset.mjs", "scripts/lib/rules.mjs", "scripts/lib/redaction.mjs", "test/validate.test.mjs", "test/yaml-subset.test.mjs", "test/redaction.test.mjs", "test/prompts-sync.test.mjs", "test/repo.test.mjs", "test/helpers.mjs", "test/fixtures/minimal-valid", "template", "examples/clipjar", ".github/workflows/ci.yml"]) assert.ok(fs.existsSync(path.join(ROOT, p)), p);
+  for (const p of ["bin", "commands", "agents", "hooks", "docs/superpowers", "package-lock.json"]) assert.ok(!fs.existsSync(path.join(ROOT, p)), p);
+});
+test("no AI attribution anywhere (R-REPO-6)", () => {
+  const markers = ["Co-Authored-By: " + "Claude", "Claude-" + "Session:", "Generated with [" + "Claude", "claude.ai/" + "code/session"];
+  for (const e of repoFiles()) { if (!e.isText) continue; const t = readText(path.join(ROOT, e.path)); for (const m of markers) assert.ok(!t.includes(m), `${e.path} contains ${m}`); }
+});
+test("no home paths, emails, IPs or secrets in repo files (R-REPO-7, R-REPO-10)", () => {
+  const keep = new Set(["email", "ipv4", "ipv6", "home-path", "secret"]);
+  for (const e of repoFiles()) {
+    if (!e.isText || e.path.startsWith("test/fixtures/") || /^test\/.*\.test\.mjs$/.test(e.path) || e.path === "test/helpers.mjs") continue;
+    const bad = scanText(readText(path.join(ROOT, e.path))).filter((f) => keep.has(f.pattern));
+    assert.deepEqual(bad.map((f) => `${e.path}:${f.line} ${f.pattern} ${f.match.slice(0, 2)}…`), []);
+  }
+});
+test("test files hold no complete secret shape except the AWS documentation key (R-TST-9)", () => {
+  for (const e of repoFiles()) {
+    if (!(/^test\/[^/]+\.test\.mjs$/.test(e.path) || e.path === "test/helpers.mjs")) continue;
+    const bad = scanText(readText(path.join(ROOT, e.path))).filter((f) => f.pattern === "secret" && !f.match.includes("AKIAIOSFODNN7EXAMPLE"));
+    assert.deepEqual(bad.map((f) => `${e.path}:${f.line} ${f.match.slice(0, 2)}…`), []);
+  }
+});
+test("ES modules with node: imports only; Markdown under 1,500 lines (R-REPO-8, R-REPO-9)", () => {
+  for (const e of repoFiles()) {
+    if (/\.(js|cjs|ts)$/.test(e.path)) assert.fail(`${e.path} is not .mjs`);
+    if (e.path.endsWith(".mjs")) for (const m of readText(path.join(ROOT, e.path)).matchAll(/from\s+["']([^"']+)["']/g)) assert.ok(m[1].startsWith("node:") || m[1].startsWith("."), `${e.path} imports ${m[1]}`);
+    if (e.path.endsWith(".md")) assert.ok(countLines(readText(path.join(ROOT, e.path))) < 1500, e.path);
+  }
+});
