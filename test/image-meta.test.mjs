@@ -153,7 +153,7 @@ test("metadata dense with leak shapes keeps 100 hits per pattern per image plus 
     const mine = result.errors.filter((f) => f.file === file);
     assert.equal(mine.length, 101, file);
     assert.ok(mine.every((f) => f.rule === "leak-home-path"), file);
-    assert.deepEqual(mine.filter((f) => f.message.includes("not listed")).map((f) => f.message), ["207900 more matches not listed (FORMAT.md §7)"], file);
+    assert.deepEqual(mine.filter((f) => f.message.includes("not listed")).map((f) => f.message), ["207900 more matches not listed (FORMAT.md §8)"], file);
   }
 });
 

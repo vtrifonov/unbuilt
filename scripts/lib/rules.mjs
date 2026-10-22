@@ -410,8 +410,9 @@ const leakRule = (rule, patterns, describe) => (ctx) => {
   }
   for (const [file, n] of more) {
     const matches = n === 1 ? "match" : "matches";
-    const text = listed.has(file) ? `${n} more ${matches} not listed` : `${n} ${matches} not listed (run limit of 10,000 reached)`;
-    out.push(finding("error", rule, file, null, `${text} (FORMAT.md §7)`));
+    // The caps are stated in FORMAT.md section 8 (correctness recheck 31).
+    const text = listed.has(file) ? `${n} more ${matches} not listed (FORMAT.md §8)` : `${n} ${matches} not listed (run limit of 10,000 reached) (FORMAT.md §8)`;
+    out.push(finding("error", rule, file, null, text));
   }
   return out;
 };

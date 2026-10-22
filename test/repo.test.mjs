@@ -81,12 +81,13 @@ test("FORMAT.md section 7 and the leak-secret row state the credential and Beare
   const row = fs.readFileSync(path.join(ROOT, "skills/validate/SKILL.md"), "utf8").split("\n").find((l) => l.startsWith("| `leak-secret` |"));
   for (const [name, text] of [["FORMAT.md", s7], ["leak-secret row", row]]) {
     assert.match(text, /eight or more characters, holds a digit and is not a placeholder/, name);
-    assert.match(text, /`Bearer` values? of 20 or more characters/, name);
+    // A Bearer value with no digit is a placeholder, so the digit condition is stated (CR-COR-23 residual).
+    assert.match(text, /`Bearer` values? of 20 or more characters holding a digit/, name);
     assert.match(text, /a digit and a letter in each half/, name);
     // The prose-word exception binds only to the quote-or-backtick context, never to `Authorization:` (CR-COR-28).
     assert.match(text, /after `Authorization:`, after a quote or (?:a )?backtick unless two hyphen-separated parts/, name);
   }
-  assert.match(fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8"), /a `Bearer` value needs header context or a digit and a letter in each half/);
+  assert.match(fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8"), /a `Bearer` value needs a digit, and header context or a digit and a letter in each half/);
 });
 test("every FORMAT.md section a script cites exists and holds the cited rule (CR-COR-24)", () => {
   const section = (n) => {
@@ -112,6 +113,10 @@ test("every FORMAT.md section a script cites exists and holds the cited rule (CR
   const ft = lines.filter((l) => /cannot be parsed for metadata scanning/.test(l) || /"file-types"/.test(l)).map((l) => Number(/FORMAT\.md §(\d+)/.exec(l)[1]));
   assert.ok(ft.length >= 2);
   for (const n of ft) assert.match(section(n), /1 MiB per image or embed and 8 MiB per run/);
+  // leak-* summaries: the per-file and per-run hit caps are stated where the summary cites them (CR-COR-31).
+  const caps = citing(/\$\{matches\} not listed/);
+  assert.equal(caps.length, 1);
+  assert.match(section(caps[0]), /Leak hits past 100 per pattern per file or 10,000 per run are only counted/);
 });
 test("FORMAT.md section 7 says whitespace and line-break entities in a data: payload are stripped before decoding (CR-COR-26, amendment 7a)", () => {
   const s7 = FORMAT.slice(FORMAT.indexOf("\n## 7. "), FORMAT.indexOf("\n## 8. "));

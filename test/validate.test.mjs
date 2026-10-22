@@ -120,8 +120,9 @@ test("blankCommentsAndFences scopes a mid-line <!-- to its paragraph (amendment 
   assert.deepEqual(ids("<!-- one\n\n- **CORE-4** (MUST) hidden.\n-->\n" + decl + "\n"), [["CORE-3", 5]]);
   assert.deepEqual(ids("   <!-- one\n\n- **CORE-4** (MUST) hidden.\n--> tail\n" + decl + "\n"), [["CORE-3", 5]]);
   assert.equal(blankCommentsAndFences("<!-- a\n\nb --> c\n"), "\n\n c\n");
-  // An inline comment closed within its own paragraph blanks, across lines too.
-  assert.deepEqual(ids("Intro <!-- hide\n**CORE-4** (MUST) hidden.\nend --> tail\n\n" + decl + "\n"), [["CORE-3", 5]]);
+  // An inline comment closed within its own paragraph blanks, across lines too. The indented list line is one
+  // findAttempts sees when not blanked and does not end the paragraph, so this fails if cross-line blanking breaks.
+  assert.deepEqual(ids("Intro <!-- hide\n    - **CORE-4** (MUST) hidden.\nend --> tail\n\n" + decl + "\n"), [["CORE-3", 5]]);
   // A list item ends the paragraph (recheck 4 wording), so it is not hidden by an earlier mid-line `<!--`.
   assert.deepEqual(ids("Intro <!-- hide\n- **CORE-4** (MUST) shown.\nend --> tail\n\n" + decl + "\n"), [["CORE-4", 2], ["CORE-3", 5]]);
   assert.equal(blankCommentsAndFences("a <!-- b\nc --> d\n"), "a \n d\n");
@@ -924,7 +925,7 @@ test("leak hits are capped at 100 per pattern per file; the rest are counted in 
   assert.equal(code, 1);
   const notes = result.errors.filter((f) => f.file === "notes.md");
   assert.deepEqual(notes.filter((f) => f.rule === "leak-email" && f.line === 3).length, 100);
-  assert.deepEqual(notes.filter((f) => !("line" in f)).map((f) => [f.rule, f.message]), [["leak-email", `${count - 100} more matches not listed (FORMAT.md §7)`]]);
+  assert.deepEqual(notes.filter((f) => !("line" in f)).map((f) => [f.rule, f.message]), [["leak-email", `${count - 100} more matches not listed (FORMAT.md §8)`]]);
   assert.deepEqual(notes.filter((f) => f.rule === "leak-home-path").length, 1);
   assert.equal(notes.length, 102);
 });
@@ -938,7 +939,7 @@ test("leak hits are capped at 10,000 per run; each file past the cap gets one su
   const summaries = leaks.filter((f) => f.message.includes("not listed"));
   assert.equal(leaks.length - summaries.length, 10000);
   assert.equal(summaries.length, 5);
-  assert.ok(summaries.every((f) => f.message === "100 matches not listed (run limit of 10,000 reached) (FORMAT.md §7)" && !("line" in f)), JSON.stringify(summaries));
+  assert.ok(summaries.every((f) => f.message === "100 matches not listed (run limit of 10,000 reached) (FORMAT.md §8)" && !("line" in f)), JSON.stringify(summaries));
 });
 test("a summary says match for one and names the run limit when nothing was listed for the file (correctness recheck 29)", (t) => {
   const dir = makeTempDir(t); copyMinimalValid(dir);
@@ -955,9 +956,9 @@ test("a summary says match for one and names the run limit when nothing was list
   assert.equal(code, 1);
   const summaries = result.errors.filter((f) => f.message.includes("not listed")).map((f) => [f.file, f.message]);
   assert.deepEqual(summaries.map(([, m]) => m), [
-    "1 more match not listed (FORMAT.md §7)",
-    "1 match not listed (run limit of 10,000 reached) (FORMAT.md §7)",
-    "2 matches not listed (run limit of 10,000 reached) (FORMAT.md §7)",
+    "1 more match not listed (FORMAT.md §8)",
+    "1 match not listed (run limit of 10,000 reached) (FORMAT.md §8)",
+    "2 matches not listed (run limit of 10,000 reached) (FORMAT.md §8)",
   ]);
   assert.deepEqual(summaries.map(([f]) => f).slice(0, 2), ["notes/a.md", "notes/z1.md"]);
   assert.equal(summaries[2][0], "notes/zz….md");
