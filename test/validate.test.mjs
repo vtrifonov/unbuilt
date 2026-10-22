@@ -305,6 +305,29 @@ test("rule gating on YAML failure: no needsMeta rule fires (R-VAL-14)", (t) => {
   assert.ok(gated.includes("module-files"));
   for (const name of gated) assert.ok(!fired.has(name), `${name} ran although unbuilt.yaml failed to parse`);
 });
+test("needsMeta matches R-VAL-14's literal lists (R-VAL-14)", () => {
+  // Gated: yaml-fields, yaml-enums, module-ids, module-paths, module-files, every id-* rule, every scenario rule,
+  // substitution-*, redaction-required, design-required, budget-module-count. Everything else still runs.
+  const GATED = ["yaml-fields", "yaml-enums", "module-ids", "module-paths", "module-files", "id-format", "id-unique", "id-retired-form",
+    "scenario-cites-id", "must-has-scenario", "should-has-scenario", "substitution-files", "substitution-matrix", "redaction-required", "design-required", "budget-module-count"];
+  const UNGATED = ["required-files", "yaml-parse", "file-types", "leak-email", "leak-ipv4", "leak-hostname", "leak-home-path", "leak-secret",
+    "evidence-dates", "budget-file-lines", "budget-total-words", "budget-image"];
+  assert.deepEqual(RULES.filter((r) => r.needsMeta).map((r) => r.name).sort(), [...GATED].sort());
+  assert.deepEqual(RULES.filter((r) => !r.needsMeta).map((r) => r.name).sort(), [...UNGATED].sort());
+});
+test("with broken YAML, budget-file-lines, file-types and evidence-dates still run (R-VAL-14)", (t) => {
+  const { code, result } = runFixture(t, "yaml-parse", { mutate: (d) => {
+    writeIn(d, "notes.md", "w\n".repeat(1501));
+    fs.writeFileSync(path.join(d, "data.sqlite"), Buffer.from([0x53, 0x51, 0x00, 0x01]));
+    writeIn(d, "evidence/2026-10-02-storage-limits.md", "# Storage limits\nChecked: 2026-10-02\n\nThe limit is documented.\n");
+  } });
+  assert.equal(code, 1);
+  const fired = [...result.errors, ...result.warnings].map((f) => [f.rule, f.file]);
+  assert.ok(fired.some(([r, f]) => r === "budget-file-lines" && f === "notes.md"), JSON.stringify(fired));
+  assert.ok(fired.some(([r, f]) => r === "file-types" && f === "data.sqlite"), JSON.stringify(fired));
+  assert.ok(fired.some(([r, f]) => r === "evidence-dates" && f === "evidence/2026-10-02-storage-limits.md"), JSON.stringify(fired));
+  assert.deepEqual([...new Set(fired.map(([r]) => r))].sort(), ["budget-file-lines", "evidence-dates", "file-types", "yaml-parse"]);
+});
 
 test("yaml-fields warns on unknown keys and masks values (R-YML-4, R-VAL-8)", (t) => {
   const a = runFixture(t, "yaml-fields", { mutate: (d) => fs.appendFileSync(path.join(d, "unbuilt.yaml"), "colour: red\n") });
