@@ -25,16 +25,20 @@ Run the steps below in order. Each of steps 1 to 4 writes its results into the d
 
 ## Step 1: Preflight
 
+When updating an existing instance, `<output-dir>` is that instance: do not propose `<name>-unbuilt` as a new folder. Read its `unbuilt.yaml` first and keep every existing key, module ID and module path. In steps 1 to 4, ask only for answers that change, and edit the existing files in place; never recreate or overwrite them wholesale. The same holds when you resume an unfinished draft (item 4). The redaction gate still runs in full.
+
 1. Check that `<source-dir>` exists and that you can read it. If it does not exist or is unreadable, stop and say so.
 2. Ask the user for the instance `name` first, before resolving any output directory. It must be kebab-case: lowercase letters and digits separated by single hyphens, at most 64 characters. Propose `<name>-unbuilt`, next to the source checkout, as the default output directory, and let the user choose another.
 3. Resolve the output directory to an absolute real path, following symbolic links. Resolve `<source-dir>` the same way. Refuse and stop when the output directory equals the source directory or lies anywhere inside it.
-4. If the output directory exists, is non-empty and has no `unbuilt.yaml`, refuse and stop: it is neither empty nor an instance. If it has an `unbuilt.yaml`, switch to update mode (see "Update mode" below).
+4. If the output directory exists, is non-empty and has no `unbuilt.yaml`, refuse and stop: it is neither empty nor an instance. If it has an `unbuilt.yaml`, ask the user whether it is a published instance or an unfinished draft from an earlier, interrupted extraction.
+   - A published instance: switch to update mode (see "Update mode" below).
+   - An unfinished draft: resume it as a first extraction. It keeps the first-extraction rename rights of section 5.6, including renaming a module `id`.
 5. Ask the user whether the source is private.
    - Private: set `origin: extracted-from-private-implementation` and `reference_impl: private`.
    - Public: ask for the public `https://` URL of the source and set `origin: extracted-from-public-implementation` and `reference_impl` to that URL.
 6. Tell the user the redaction defaults before going further. Everything `FORMAT.md` section 7 lists is always removed: configuration values, real hostnames, IPs, emails, people's names other than the author's chosen public handle, account aliases, device names, ticket or issue keys, home paths, internal URLs, secrets, and account-specific numbers such as quotas, prices or limits. Company and product names, including public platforms, languages and dependencies, are removed unless the author opts in per name at the redaction gate. Say also that this skill publishes nothing: it creates no repository, no remote, no commit and no push.
 
-Write `unbuilt.yaml` with `unbuilt: 1`, `name`, `origin` and `reference_impl` as soon as these answers are in.
+Write `unbuilt: 1`, `name`, `origin` and `reference_impl` into `unbuilt.yaml` as soon as these answers are in. When the file already exists, change only these keys and keep every other key.
 
 ## Step 2: Inventory
 
@@ -100,24 +104,24 @@ Before you ask the author for any names, build a candidate list from the source 
 - the entries of `CODEOWNERS`;
 - the bundle or reverse-DNS identifier prefix.
 
-Search the draft for each candidate with the matching rules of section 5.4, unless the operator chooses to keep that candidate. Group its hits and decide them in bulk exactly as in section 5.4. Hold the list in the conversation only.
+Search the draft for each candidate with the matching rules of section 5.4, file and directory names included, unless the operator chooses to keep that candidate. Group its hits and decide them in bulk exactly as in section 5.4. Hold the list in the conversation only.
 
 ### 5.3 Host candidates
 
-Search the draft for dotted tokens matching `\b[\w-]+(\.[\w-]+)+\b` whose last label is not in the validator's TLD list and is not a known file extension of the draft: `md`, `yaml`, `png`, `jpg`, `jpeg`, `webp`, `svg`, and the source's own file extensions. Present each distinct token with its context and ask whether it is a hostname. Replace a confirmed hostname with a role word, or, if it is public, add it to `public_hosts` after showing the entry. Bare hosts under `.local` and `.home`, such as `build-box.local` or `api.svc.cluster.local`, reach the author only through this search, because the validator lists neither TLD.
+Search the draft, every file's contents and every file and directory name under `<output-dir>`, for dotted tokens matching `\b[\w-]+(\.[\w-]+)+\b` whose last label is not in the validator's TLD list and is not a known file extension of the draft: `md`, `yaml`, `png`, `jpg`, `jpeg`, `webp`, `svg`, and the source's own file extensions. Present each distinct token with its context and ask whether it is a hostname. Replace a confirmed hostname with a role word, or, if it is public, add it to `public_hosts` after showing the entry. Bare hosts under `.local` and `.home`, such as `build-box.local` or `api.svc.cluster.local`, reach the author only through this search, because the validator lists neither TLD.
 
 ### 5.4 Name pass
 
 Ask the author to name every company, product, person, team, account, device, ticket-key prefix, secret or credential, and internal hostname or URL that appears in the source. Ask for all of these categories even when the seed list looked complete.
 
-Search the whole draft for each name, including every value in `unbuilt.yaml`, case-insensitively:
+Search the whole draft for each name, case-insensitively. The draft means every file's contents, including every value in `unbuilt.yaml`, and also every file and directory name under `<output-dir>`, such as a decision, evidence or image file named after a product. The validator scans contents only, so names in paths are found only here.
 
 - A name of 4 or more characters is matched as a substring, not as a whole word. For "Acme" you find `AcmeSyncService`, `ACME_API_TOKEN` and `@acme/sdk`.
 - A name of 1 to 3 characters is matched only at identifier boundaries: as a whole word, or as a segment of a camelCase, snake_case or kebab-case identifier, or of an `@scope/` package name. For "Ed" you find `Ed`, `EdClient`, `ed_token` and `@ed/sdk`, and not `edited` or `added`.
 
 Group the hits by name. For each name, the author first decides in bulk: "replace all" with a role word, or "keep all". Then show the exceptions: each hit with its file, line and surrounding context. The author may flip any single hit.
 
-In `unbuilt.yaml`, only the entries of `platforms` and `original_stack` are exempt from role words, and they are handled in section 5.5. `summary` and `implementation_terms` get role words like any prose. A hit in `name`, a module `id`, a module `path` or a `substitutions` name triggers a rename (section 5.6).
+In `unbuilt.yaml`, only the entries of `platforms` and `original_stack` are exempt from role words, and they are handled in section 5.5. `summary` and `implementation_terms` get role words like any prose. A hit in `name`, a module `id`, a module `path` or a `substitutions` name triggers a rename (section 5.6), and so does a replaced hit in any file or directory name.
 
 ### 5.5 Company and product names
 
@@ -131,13 +135,14 @@ Record the opt-ins only as a count per category in `redaction.md`, never by name
 
 ### 5.6 Renames
 
-When the author replaces a name found in an identifier-valued field of `unbuilt.yaml`, rename in one step:
+When the author replaces a name found in an identifier-valued field of `unbuilt.yaml` or in a file or directory name, rename in one step:
 
-- `name`: the author chooses a neutral kebab-case name. Write it, rename the output folder to `<new-name>-unbuilt`, and repeat the folder checks of step 1 on the new path: it must not equal or lie inside the source directory, and it must not be a non-empty directory without an `unbuilt.yaml`.
+- `name`: the author chooses a neutral kebab-case name. Before renaming, check the new path `<new-name>-unbuilt`: it must not equal or lie inside the source directory, and it must either not exist or be an empty directory. If it exists and is not empty, even when it holds an `unbuilt.yaml`, do not rename; ask the author for another name. Then write the name and rename the output folder.
 - A module `path`: rename the module directory and update the `path` value.
 - A `substitutions` name: rename `substitutions/<name>.md`, and update the list entry and the matrix column in `substitutions/README.md`.
-- A module `id`, on a first extraction: the author chooses a role-word ID that still matches `^[A-Z]{2,8}$`, such as `SYNC`. Rewrite every declaration and citation of that module's IDs and its matrix row. This is the only ID change you ever make.
-- A module `id`, in update mode: never rename it. Show the hit and offer two choices. Either the author opts the name in, or you retire every requirement of that module with the retired form, for example `- **ACME-1** retired: module renamed for redaction`, and declare a new module with a neutral ID whose requirements get fresh numbers.
+- Any other file or directory name, such as a file under `decisions/`, `evidence/` or `design/`: rename it to a role-word slug that keeps the format's naming rules (an evidence file keeps its date prefix), and update every link and reference to it.
+- A module `id`, on a first extraction, including a resumed unfinished draft: the author chooses a role-word ID that still matches `^[A-Z]{2,8}$`, such as `SYNC`. Rewrite every declaration and citation of that module's IDs and its matrix row. This is the only ID change you ever make.
+- A module `id`, in update mode of a published instance: never rename it. Show the hit and offer two choices. Either the author opts the name in, or you retire every requirement of that module with the retired form, for example `- **ACME-1** retired: module renamed for redaction`, and declare a new module with a neutral ID whose requirements get fresh numbers.
 
 After any rename, re-run the validator and the whole name search of section 5.4 on the renamed draft.
 
@@ -179,7 +184,7 @@ Use this mode when the author cannot answer the interview.
 
 ## Update mode
 
-When `<output-dir>` already holds an instance:
+When `<output-dir>` already holds an instance that the user says is published (step 1, item 4):
 
 1. Keep every existing ID. New requirements get the next unused number in their module. A removed requirement becomes a `- **CORE-3** retired: <reason>` line. Never renumber anything.
 2. Remove an `(inferred)` marker only when the author confirms that requirement.

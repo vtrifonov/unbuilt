@@ -95,6 +95,8 @@ End the report with this exact sentence:
 
 Say `continue` to start milestone 2.
 
+If the milestone failed, `continue` re-runs it, because it is still the next unchecked milestone.
+
 ## Later milestones
 
 - When the builder says `continue`, run exactly the next unchecked milestone with the flow of steps 6 and 7, then stop. Run one milestone per `continue`. End each report with the same sentence naming the next milestone, such as "Say `continue` to start milestone 3."; after the last milestone, say that every milestone is done instead.
