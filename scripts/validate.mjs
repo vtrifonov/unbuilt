@@ -227,6 +227,7 @@ function main() {
     try { stat = fs.statSync(args.dir); } catch { /* reported below */ }
     if (!stat) return usageFail(`path does not exist: ${args.dir}`);
     if (!stat.isDirectory()) return usageFail(`not a directory: ${args.dir}`);
+    try { fs.readdirSync(args.dir); } catch { return usageFail(`cannot read directory: ${args.dir}`); }
     const { findings, name } = validate(args.dir, args.today);
     process.stdout.write(args.json ? formatJson(findings) : formatHuman(findings, name));
     process.exitCode = findings.some((f) => f.level === "error") ? 1 : 0;
