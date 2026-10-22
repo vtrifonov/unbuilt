@@ -321,3 +321,15 @@ test("id-unique names the first declaration (rule 9)", (t) => {
   const { result } = runFixture(t, "id-unique");
   assert.ok(result.errors.some((f) => f.rule === "id-unique" && f.line === 5 && f.message.includes("modules/core/SPEC.md:3")));
 });
+
+test("scenario coverage edge cases (rules 11–13)", (t) => {
+  const inv = runFixture(t, "must-has-scenario", { mutate: (d) => writeIn(d, "modules/core/scenarios.md", readIn(d, "modules/core/scenarios.md").replace("Covers: INV-1", "Covers: CORE-1")) });
+  assert.ok(inv.result.errors.some((f) => f.rule === "must-has-scenario" && f.file === "SPEC.md" && f.line === 13));
+  const utf = runFixture(t, "scenario-cites-id", { mutate: (d) => writeIn(d, "modules/core/scenarios.md", readIn(d, "modules/core/scenarios.md").replace("Covers: CORE-9", "Covers: UTF-8")) });
+  assert.ok(utf.result.errors.some((f) => f.rule === "scenario-cites-id" && f.line === 3 && f.message.includes("cites no declared")));
+  assert.ok(!utf.result.errors.some((f) => f.message.includes("UTF-8 is cited")));
+  const empty = runFixture(t, "should-has-scenario", { mutate: (d) => writeIn(d, "modules/core/scenarios.md", "# Scenarios\n\nnothing here\n") });
+  assert.ok(has(empty.result, "scenario-cites-id", "warning", "modules/core/scenarios.md"));
+  const expected = runFixture(t, "should-has-scenario");
+  assert.ok(expected.result.warnings.some((f) => f.rule === "should-has-scenario" && f.line === 4 && f.message === "CORE-2 is a SHOULD but no scenario cites it (FORMAT.md §5)"));
+});

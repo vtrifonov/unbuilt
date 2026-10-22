@@ -213,6 +213,32 @@ function idRetiredForm(ctx) {
   return out;
 }
 
+function scenarioCitesId(ctx) {
+  const out = [];
+  const declared = new Set(ctx.declarations.map((d) => d.id));
+  const live = new Set(ctx.declarations.filter((d) => !d.retired).map((d) => d.id));
+  for (const file of ctx.scenarioFiles) {
+    const sections = ctx.scenarios.filter((s) => s.file === file);
+    if (sections.length === 0) out.push(finding("warning", "scenario-cites-id", file, null, `${file} has no scenario sections (FORMAT.md §3)`));
+    for (const s of sections) {
+      if (!s.citations.some((c) => live.has(c.id))) out.push(finding("error", "scenario-cites-id", file, s.startLine, `scenario "${s.title}" cites no declared requirement id (FORMAT.md §3)`));
+    }
+    for (const c of ctx.citations.get(file) ?? []) {
+      if (!declared.has(c.id)) out.push(finding("error", "scenario-cites-id", file, c.line, `${c.id} is cited but not declared (FORMAT.md §5)`));
+    }
+  }
+  return out;
+}
+
+function coverage(ctx, modality, level, rule) {
+  const covered = new Set(ctx.scenarios.flatMap((s) => s.citations.map((c) => c.id)));
+  return ctx.declarations.filter((d) => !d.retired && d.modality === modality && !covered.has(d.id))
+    .map((d) => finding(level, rule, d.file, d.line, `${d.id} is a ${modality} but no scenario cites it (FORMAT.md §5)`));
+}
+
+const mustHasScenario = (ctx) => coverage(ctx, "MUST", "error", "must-has-scenario");
+const shouldHasScenario = (ctx) => coverage(ctx, "SHOULD", "warning", "should-has-scenario");
+
 RULES.push(
   { name: "required-files", fn: requiredFiles, needsMeta: false },
   { name: "module-files", fn: moduleFiles, needsMeta: true },
@@ -224,6 +250,9 @@ RULES.push(
   { name: "id-format", fn: idFormat, needsMeta: true },
   { name: "id-unique", fn: idUnique, needsMeta: true },
   { name: "id-retired-form", fn: idRetiredForm, needsMeta: true },
+  { name: "scenario-cites-id", fn: scenarioCitesId, needsMeta: true },
+  { name: "must-has-scenario", fn: mustHasScenario, needsMeta: true },
+  { name: "should-has-scenario", fn: shouldHasScenario, needsMeta: true },
 );
 
 export function isCalendarDate(s) {

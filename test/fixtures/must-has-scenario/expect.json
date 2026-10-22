@@ -1,0 +1,1 @@
+{ "rule": "must-has-scenario", "level": "error", "file": "modules/core/SPEC.md" }
