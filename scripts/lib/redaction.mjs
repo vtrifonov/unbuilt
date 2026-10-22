@@ -151,8 +151,8 @@ export const TLDS = [
 ];
 // Labels may hold non-ASCII letters (and combining marks after the first character), so an IDN host matches whole
 // and goes through the punycode allow check; the lookbehind keeps a match from starting inside a label (security
-// recheck 17).
-const BARE_HOST_RE = new RegExp(`(?<![@\\p{L}\\p{M}\\p{N}_.-])((?:[\\p{L}\\p{N}](?:[\\p{L}\\p{M}\\p{N}-]{0,61}[\\p{L}\\p{M}\\p{N}])?\\.)+(?:${TLDS.join("|")}))(?![\\w-])`, "giu");
+// recheck 17), and the lookahead, using the same class, keeps one from ending inside a word (correctness recheck 27).
+const BARE_HOST_RE = new RegExp(`(?<![@\\p{L}\\p{M}\\p{N}_.-])((?:[\\p{L}\\p{N}](?:[\\p{L}\\p{M}\\p{N}-]{0,61}[\\p{L}\\p{M}\\p{N}])?\\.)+(?:${TLDS.join("|")}))(?![\\p{L}\\p{M}\\p{N}_-])`, "giu");
 // The scheme is bounded to 32 characters, so each start costs at most 32 steps and `_`, `-`, `.` or `+`
 // before a scheme never blocks a match (amendment 7c revised).
 const URL_HOST_RE = /(?<![A-Za-z0-9])[a-z][a-z0-9+.-]{0,31}:\/\/([^/\s?#\[\]"'<>()`]+)/gi;

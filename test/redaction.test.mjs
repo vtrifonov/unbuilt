@@ -283,6 +283,10 @@ test("a host after an @ or : inside URL userinfo is reported (security recheck 1
   assert.deepEqual(scanText("x https://alice@corp.internal@github.com/").map((h) => [h.pattern, h.column]), [["hostname", 17]]);
   assert.equal(maskText("https://u:p@build.widgets-intranet.com@github.com/"), "https://u:p@bu…@github.com/");
 });
+test("a TLD directly followed by a non-ASCII letter or mark is not a host end (correctness recheck 27)", () => {
+  for (const t of ["Fui a casa.Comí pasta", "see casa.Coḿ later", "x.io_", "see build.lané"]) assert.deepEqual(hits(t, "hostname"), [], t);
+  assert.deepEqual(hits("see build.lan, then", "hostname").map((f) => f.match), ["build.lan"]);
+});
 test("the bare-host overlap filter is linear: 1 MiB of URLs scans under 2 s (correctness recheck 15)", () => {
   const text = "https://x.io/ ".repeat(Math.ceil(1048576 / 14));
   const t0 = performance.now();
