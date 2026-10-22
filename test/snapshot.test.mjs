@@ -6,7 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { makeTempDir, writeIn, readIn, REPO_ROOT } from "./helpers.mjs";
 import { MAX_TEXT_BYTES } from "../scripts/lib/walk.mjs";
-import { USAGE, JSON_ESCAPE_RE, sanitize, includeRule, scanInstance, readIncludedFile, InstanceError } from "../scripts/snapshot.mjs";
+import { USAGE, escapeJson, sanitize, includeRule, scanInstance, readIncludedFile, InstanceError } from "../scripts/snapshot.mjs";
 
 const SCRIPT = path.join(REPO_ROOT, "scripts", "snapshot.mjs");
 const runSnapshot = (args, opts = {}) => {
@@ -32,14 +32,15 @@ const unreadableSkip = () => process.platform === "win32" || process.getuid?.() 
 const mkfifo = (p) => process.platform !== "win32" && spawnSync("mkfifo", [p]).status === 0;
 
 test("sanitize replaces every R-DIF-12 code point with ? (R-DIF-12)", () => {
-  const UNSAFE = ["\u0000", "\u001f", "\u007f", "\u0085", "\u009f", "\u061c", "\u200b", "\u200d", "\u200e", "\u200f", "\u2028", "\u2029", "\u202a", "\u202e", "\u2060", "\u2066", "\u2069", "\ufe00", "\ufe0f", "\ufeff", "\u{e0000}", "\u{e0049}", "\u{e007f}"];
+  const UNSAFE = ["\u0000", "\u001f", "\u007f", "\u0085", "\u009f", "\u061c", "\u200b", "\u200d", "\u200e", "\u200f", "\u2028", "\u2029", "\u202a", "\u202e", "\u2060", "\u2066", "\u2069", "\ufe00", "\ufe0f", "\ufeff", "\u{e0000}", "\u{e0049}", "\u{e007f}", "\u00ad", "\u180e", "\u2064", "\u206f", "\ufffb", "\u{e0100}", "\u{e01ef}", "\u{1d173}"];
   for (const ch of UNSAFE) assert.equal(sanitize("a" + ch + "b"), "a?b");
   assert.equal(sanitize("\u00e9 \u00fc \u4e2d\u00a0"), "\u00e9 \u00fc \u4e2d\u00a0");
   for (const ch of UNSAFE) {
-    if (ch.codePointAt(0) >= 0x7f) assert.equal(ch.replace(JSON_ESCAPE_RE, "?"), "?");
-    else if (ch.codePointAt(0) < 0x20) assert.equal(ch.replace(JSON_ESCAPE_RE, "?"), ch);
+    const json = escapeJson(JSON.stringify({ k: "a" + ch + "b" }, null, 2));
+    assert.ok(!json.includes(ch), JSON.stringify(ch));
+    assert.equal(JSON.parse(json).k, "a" + ch + "b");
   }
-  assert.equal("\n".replace(JSON_ESCAPE_RE, "?"), "\n");
+  assert.equal(escapeJson('{\n  "a": "\u00e9"\n}'), '{\n  "a": "\u00e9"\n}');
 });
 
 test("include rule keeps md text and root unbuilt.yaml and excludes agent files by name (R-SNP-1)", () => {
@@ -57,6 +58,8 @@ test("include rule keeps md text and root unbuilt.yaml and excludes agent files 
     [md("AGENT.md"), "exclude"],
     [md("claude.local.md"), "exclude"],
     [md("GEMINI.md"), "exclude"],
+    [md("decisions/AGENTS.override.md"), "exclude"],
+    [md("agents.OVERRIDE.md"), "exclude"],
     [md(".hidden.md"), "exclude"],
     [md(".claude/commands/x.md"), "exclude"],
     [{ path: "README.md", kind: "symlink", ext: "md", isText: false }, "ignore"],

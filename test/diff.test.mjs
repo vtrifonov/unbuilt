@@ -80,7 +80,7 @@ test("ignores non-text, non-md, .git and excluded files (R-DIF-19, R-DIF-20, R-S
     },
     ({ newDir }) => writeIn(newDir, ".git/x.md", "# git\n"),
     ({ newDir }) => {
-      for (const n of ["CLAUDE.md", "modules/core/agents.md", "GEMINI.md", ".claude/commands/x.md", ".hidden.md"]) writeIn(newDir, n, "# agent\n");
+      for (const n of ["CLAUDE.md", "modules/core/agents.md", "GEMINI.md", "decisions/AGENTS.override.md", ".claude/commands/x.md", ".hidden.md"]) writeIn(newDir, n, "# agent\n");
     },
   ];
   for (const mutate of cases) {
@@ -810,6 +810,32 @@ test("control, bidi and tag characters never reach the terminal raw (R-DIF-12, R
   for (const ch of BAD_CHARS) assert.ok(!json.stdout.includes(ch), JSON.stringify(ch));
   for (const esc of ["\\u001b", "\\u202e", "\\u0085", "\\u200b", "\\u2060", "\\ufe0f", "\\ufeff", "\\udb40\\udc49", "\\udb40\\udc67"]) assert.ok(json.stdout.includes(esc), esc);
   assert.equal(JSON.parse(json.stdout).scenarios.added[0].title, "Capture " + BAD + " note");
+});
+
+test("variation selectors supplement and other invisible format characters never reach the terminal raw (R-DIF-12, R-DIF-13)", (t) => {
+  const c = sides(t);
+  const INVISIBLE = "\u{e0100}\u{e01ef}\u180e\u2064\ufffb";
+  edit(c.newDir, "modules/core/scenarios.md", "## Capture a note", "## Capture " + INVISIBLE + " note");
+  const human = runDiff([c.oldDir, c.newDir]);
+  for (const ch of INVISIBLE) assert.ok(!human.stdout.includes(ch), JSON.stringify(ch));
+  assert.ok(human.stdout.includes('scenarios.added  CORE "Capture ????? note" cites CORE-1 INV-1'), human.stdout);
+  const json = runDiff([c.oldDir, c.newDir, "--json"]);
+  for (const ch of INVISIBLE) assert.ok(!json.stdout.includes(ch), JSON.stringify(ch));
+  for (const esc of ["\\udb40\\udd00", "\\udb40\\uddef", "\\u180e", "\\u2064", "\\ufffb"]) assert.ok(json.stdout.includes(esc), esc);
+  assert.equal(JSON.parse(json.stdout).scenarios.added[0].title, "Capture " + INVISIBLE + " note");
+});
+
+test("a double quote or backslash inside a title is escaped in human output (R-DIF-12)", () => {
+  const forged = 'Pin a note" cites INV-1 "x';
+  const r = handResult((x) => {
+    x.scenarios.added.push({ module: "CORE", title: forged, cites: [] });
+    x.milestones.added.push({ number: 7, title: 'Say "hi" \\' });
+  });
+  assert.equal(formatHuman(r), [
+    'scenarios.added  CORE "Pin a note\\" cites INV-1 \\"x"',
+    'milestones.added  7 "Say \\"hi\\" \\\\"',
+    "2 difference(s)",
+  ].join("\n") + "\n");
 });
 
 test("paths are sanitised in human output (R-DIF-12)", (t) => {

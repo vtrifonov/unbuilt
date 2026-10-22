@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { sanitize, JSON_ESCAPE_RE, InstanceError, scanInstance, readIncludedFile, writeError } from "./snapshot.mjs";
+import { sanitize, escapeJson, InstanceError, scanInstance, readIncludedFile, writeError } from "./snapshot.mjs";
 import { parse } from "./lib/yaml-subset.mjs";
 import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
 
@@ -353,7 +353,8 @@ export function diffInstances(oldDir, newDir) {
 
 const at = (e) => `${e.id} ${e.file}:${e.line}`;
 const shift = (e) => `${e.id} ${e.from} to ${e.to}`;
-const titled = (e) => `${e.number} "${e.title}"`;
+const quote = (title) => `"${String(title).replace(/[\\"]/g, "\\$&")}"`;
+const titled = (e) => `${e.number} ${quote(e.title)}`;
 const state = (v) => (v ? "inferred" : "stated");
 const FORMAT = {
   "requirements.added": (e) => `${e.id} ${e.modality}${e.inferred ? " inferred" : ""} ${e.file}:${e.line}`,
@@ -372,7 +373,7 @@ const FORMAT = {
     return titled(e) + (covers.length > 0 ? ` covers ${covers.join(" ")}` : "") + (e.title_changed ? " title changed" : "") + (covers.length === 0 && !e.title_changed ? " text changed" : "");
   },
 };
-const scenarioLine = (e) => `${e.module} "${e.title}"${e.cites.length > 0 ? ` cites ${e.cites.join(" ")}` : ""}`;
+const scenarioLine = (e) => `${e.module} ${quote(e.title)}${e.cites.length > 0 ? ` cites ${e.cites.join(" ")}` : ""}`;
 
 export function formatHuman(result) {
   if (!result.changed) return "no differences\n";
@@ -387,8 +388,7 @@ export function formatHuman(result) {
 }
 
 export function formatJson(result) {
-  const escape = (ch) => [...Array(ch.length).keys()].map((i) => "\\u" + ch.charCodeAt(i).toString(16).padStart(4, "0")).join("");
-  return JSON.stringify(result, null, 2).replace(JSON_ESCAPE_RE, escape) + "\n";
+  return escapeJson(JSON.stringify(result, null, 2)) + "\n";
 }
 
 function usageFail(message) {

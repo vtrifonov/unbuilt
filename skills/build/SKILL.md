@@ -107,7 +107,7 @@ Then write:
 - addition: <behaviour the spec does not have>. Why: <reason>. Agreed at: <revision or date>.
 ```
 
-Departure entries are the builder's words or your summary, never instance text, and an instance title is quoted. `Agreed at` is the short revision or the local date. Record a departure only for a SHOULD or MAY requirement or an ambiguous reading, never for a MUST. Write one only with the builder's explicit approval, at the moment it is agreed. A retired requirement the builder keeps becomes an `addition` that names its old ID,. Excluded modules stay under "Not built". A plan without the section gains it on its next approved plan.
+Departure entries are the builder's words or your summary, never instance text, and an instance title is quoted. `Agreed at` is the short revision or the local date. Record a departure only for a SHOULD or MAY requirement or an ambiguous reading, never for a MUST. Write one only with the builder's explicit approval, at the moment it is agreed. A retired requirement the builder keeps becomes an `addition` that names its old ID. Excluded modules stay under "Not built". A plan without the section gains it on its next approved plan.
 
 If the milestones in `BUILD.md` do not parse (no `## Milestone 1:` heading, gaps in the numbering, a milestone without a `Covers:` line) or cite IDs that are not declared, say so in the plan. Propose milestones derived from the module and invariant declarations and ask the builder to approve them. Never invent milestones silently.
 
@@ -115,7 +115,7 @@ Show the plan to the builder and stop. Continue only on the builder's explicit g
 
 ## The baseline
 
-`.unbuilt/baseline/` holds exactly the files `snapshot.mjs` copies, with their relative paths and bytes. The snapshot, the diff and the baseline leave out every path with a component that starts with `.` and every file named `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENT.md` or `GEMINI.md` in any letter case.
+`.unbuilt/baseline/` holds exactly the files `snapshot.mjs` copies, with their relative paths and bytes. The snapshot, the diff and the baseline leave out every path with a component that starts with `.` and every file named `CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, `AGENTS.override.md`, `AGENT.md` or `GEMINI.md` in any letter case.
 
 Write `.unbuilt/baseline/` only for a plan the builder approved, and only from a snapshot that passed the validator in this run. The one write without a new approval is the legacy case where the plan's revision already equals the instance's. The baseline is the revision the approved plan targets, not what the code implements yet.
 
@@ -128,9 +128,9 @@ The write order:
 3. Rename `PLAN.md.next` to `PLAN.md`. This is the commit point.
 4. Delete `.unbuilt/baseline` when present, then rename `.unbuilt/baseline.next` to `.unbuilt/baseline`.
 
-If step 2 exits other than 0, delete both staged copies, write nothing else and stop. The baseline never changes partially.
+If step 2 exits other than 0, delete `.unbuilt/baseline.next` first and `PLAN.md.next` last, write nothing else and stop. The baseline never changes partially. `PLAN.md.next` is always the first staged file written and the last one deleted, so a staged baseline never exists without it.
 
-Recovery runs at the start of every run in a project whose `PLAN.md` or `PLAN.md.next` starts with `unbuilt-instance:`, after the checks. When `PLAN.md.next` is present, delete it and any `.unbuilt/baseline.next`, run `rmdir` on an empty `.unbuilt/` when no `PLAN.md` exists, and tell the builder. Otherwise, when `.unbuilt/baseline.next` is present, finish step 4 of the write order and tell the builder. Both are safe to redo.
+Recovery runs at the start of every run in a project whose `PLAN.md` or `PLAN.md.next` starts with `unbuilt-instance:`, after the checks. When `PLAN.md.next` is present, the approval never committed: delete any `.unbuilt/baseline.next` first and `PLAN.md.next` last, then run `rmdir` on an empty `.unbuilt/` when no `PLAN.md` exists, and tell the builder. Otherwise, when `.unbuilt/baseline.next` is present, finish step 4 of the write order and tell the builder. Both are safe to redo.
 
 Every milestone, update milestones included, reads instance text from the baseline. With no baseline, because the scripts were unavailable, read the instance in place.
 

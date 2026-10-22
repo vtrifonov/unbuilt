@@ -5,16 +5,22 @@ import { walkInstance, MAX_TEXT_BYTES } from "./lib/walk.mjs";
 
 export const USAGE = "usage: node scripts/snapshot.mjs <instance-dir> <dest-dir>\n       node scripts/snapshot.mjs --help\n";
 
-export const UNSAFE_RE = /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufe00-\ufe0f\ufeff\u{e0000}-\u{e007f}]/gu;
-export const JSON_ESCAPE_RE = /[\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060\u2066-\u2069\ufe00-\ufe0f\ufeff\u{e0000}-\u{e007f}]/gu;
+export const UNSAFE_RE = /[\p{Cc}\p{Cf}\u2028\u2029\ufe00-\ufe0f\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu;
 
 const MAX_TOTAL_BYTES = 67108864;
 const MAX_FILES = 10000;
-const AGENT_FILES = ["claude.md", "claude.local.md", "agents.md", "agent.md", "gemini.md"];
+const AGENT_FILES = ["claude.md", "claude.local.md", "agents.md", "agents.override.md", "agent.md", "gemini.md"];
 const SKIP_KINDS = ["symlink", "fifo", "socket", "device"];
 
 export function sanitize(text) {
   return String(text).replace(UNSAFE_RE, "?");
+}
+
+const escapeUnits = (ch) => [...Array(ch.length).keys()].map((i) => "\\u" + ch.charCodeAt(i).toString(16).padStart(4, "0")).join("");
+
+// JSON.stringify already escapes C0 inside strings, so a raw "\n" is layout and every other UNSAFE_RE match is inside a string value.
+export function escapeJson(json) {
+  return json.replace(UNSAFE_RE, (ch) => (ch === "\n" ? ch : escapeUnits(ch)));
 }
 
 export function writeError(err) {
