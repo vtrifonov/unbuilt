@@ -178,6 +178,7 @@ test("excludes agent files and dot paths by name (R-SNP-1, R-SNP-7)", (t) => {
   }
   assert.ok(r.stdout.includes("excluded .bad?name.md\n"));
   assert.ok(!r.stdout.includes("\u001b"));
+  assert.equal(runDiff([inst, dest]).code, 0);
 });
 
 test("skips symlinks without following them (R-SNP-6, R-SNP-7)", (t) => {
@@ -306,6 +307,7 @@ test("snapshot of a snapshot is identical (R-SNP-6)", (t) => {
   assert.equal(runSnapshot([inst, a]).code, 0);
   assert.equal(runSnapshot([a, b]).code, 0);
   assert.deepEqual(tree(a), tree(b));
+  assert.equal(runDiff([a, b]).code, 0);
 });
 
 test("usage errors exit 2 with the usage text (R-SNP-4)", (t) => {
