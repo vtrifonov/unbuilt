@@ -416,6 +416,24 @@ test("evidence-dates: expired warning, bad date, equal date, name shape (rule 16
   assert.ok(![...equal.result.errors, ...equal.result.warnings].some((f) => f.rule === "evidence-dates"));
   const name = runFixture(t, "evidence-dates", { mutate: (d) => { writeIn(d, ev, "Checked: 2026-01-01\nExpires: 2027-01-01\n"); writeIn(d, "evidence/notes.md", "Checked: 2026-01-01\nExpires: 2027-01-01\n"); } });
   assert.ok(has(name.result, "evidence-dates", "error", "evidence/notes.md"));
+  const before = runFixture(t, "evidence-dates", { mutate: (d) => writeIn(d, ev, "# Storage API\n\nChecked: 2026-10-01\nExpires: 2026-09-01\n") });
+  assert.ok(before.result.errors.some((f) => f.rule === "evidence-dates" && f.file === ev && f.line === 4 && f.message.includes("is before Checked")));
+});
+
+test("substitution-files and matrix branches (rules 14-15)", (t) => {
+  const dup = makeTempDir(t); copyMinimalValid(dup);
+  writeIn(dup, "unbuilt.yaml", readIn(dup, "unbuilt.yaml").replace("substitutions:\n  - storage\n", "substitutions:\n  - storage\n  - storage\n  - Bad_Name\n"));
+  const dr = runJson([dup, "--json", "--today", "2026-10-22"]).result.errors.filter((f) => f.rule === "substitution-files");
+  assert.ok(dr.some((f) => f.file === "unbuilt.yaml" && f.message === "substitution storage is listed twice (FORMAT.md §4)"));
+  assert.ok(dr.some((f) => f.file === "unbuilt.yaml" && f.message === 'substitution name "Bad_Name" must be kebab-case (FORMAT.md §4)'));
+  const noReadme = makeTempDir(t); copyMinimalValid(noReadme);
+  fs.rmSync(path.join(noReadme, "substitutions/README.md"));
+  const nr = runJson([noReadme, "--json", "--today", "2026-10-22"]).result;
+  assert.ok(nr.errors.some((f) => f.rule === "substitution-files" && f.file === "substitutions/README.md" && f.message.includes("is required when substitutions is non-empty")));
+  const col = runFixture(t, "substitution-matrix", { mutate: (d) => writeIn(d, "substitutions/README.md", "# S\n\n| Module |\n|---|\n| CORE |\n") });
+  assert.ok(col.result.errors.some((f) => f.rule === "substitution-matrix" && f.line === 3 && f.message === "matrix is missing column storage (FORMAT.md §4)"));
+  const none = runFixture(t, "substitution-matrix", { mutate: (d) => writeIn(d, "substitutions/README.md", "# S\n\nno table here\n") });
+  assert.ok(none.result.errors.some((f) => f.rule === "substitution-matrix" && f.message.startsWith("no table whose header starts with Module")));
 });
 
 const leakRules = (r) => [...r.errors, ...r.warnings].filter((f) => f.rule.startsWith("leak-"));
@@ -429,8 +447,9 @@ test("leak messages mask the match (R-VAL-8)", (t) => {
   }
 });
 test("leak-ipv4 forwards the ipv6 pattern (R-TST-7)", (t) => {
-  const { result } = runFixture(t, "leak-ipv4", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "Peer fd12:3456:789a::1 here.\n") });
+  const { result } = runFixture(t, "leak-ipv4", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "Peer fd12:3456:789a::1 here.\nHardware aa:bb:cc:dd:ee:ff here.\n") });
   assert.ok(result.errors.some((f) => f.rule === "leak-ipv4" && f.message.startsWith("IPv6 address fd…")));
+  assert.ok(result.errors.some((f) => f.rule === "leak-ipv4" && f.message.startsWith("MAC address aa…")));
 });
 test("reference_impl host is exact; public_hosts entries are exact (R-VAL-25, R-YML-15, R-VAL-27)", (t) => {
   const pub = (d, extra = "") => writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("origin: extracted-from-private-implementation", "origin: extracted-from-public-implementation").replace("reference_impl: private", "reference_impl: https://tool.example-public.org") + extra);
