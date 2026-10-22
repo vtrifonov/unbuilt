@@ -186,7 +186,14 @@ function scanAuthorities(text, opts, taken, hosts, passwords) {
     }
     taken.fill(1, start, start + authority.length);
     // A hostname in the userinfo (a host name before the "@") is scanned like a bare host (security recheck 17).
-    if (at > 0) scanBareHosts(userinfo, opts, null, hosts, start);
+    // Each part between "@" and ":" is scanned on its own, so a host right after an inner "@" is not hidden by the
+    // lookbehind (security recheck 19).
+    let partStart = 0;
+    for (let i = 0; i <= userinfo.length; i++) {
+      if (i < userinfo.length && userinfo[i] !== "@" && userinfo[i] !== ":") continue;
+      if (i > partStart) scanBareHosts(userinfo.slice(partStart, i), opts, null, hosts, start + partStart);
+      partStart = i + 1;
+    }
     if (!host || IPV4_FULL_RE.test(host) || host.startsWith("[")) continue;
     if (hostAllowedNormalized(host, opts)) continue;
     hosts.add({ pattern: "hostname", start: hostStart, end: hostStart + host.length, match: host });

@@ -274,6 +274,15 @@ test("bare-host labels may hold non-ASCII letters, and a host in URL userinfo is
     "Größe.Breite is a field path", "日本語.テスト"];
   for (const t of negatives) assert.deepEqual(hits(t, "hostname"), [], t);
 });
+test("a host after an @ or : inside URL userinfo is reported (security recheck 19)", () => {
+  const rows = [
+    ["https://alice@corp.internal@github.com/", ["corp.internal"]],
+    ["https://u:p@build.widgets-intranet.com@github.com/", ["build.widgets-intranet.com"]],
+  ];
+  for (const [t, want] of rows) assert.deepEqual(hits(t, "hostname").map((f) => f.match), want, t);
+  assert.deepEqual(scanText("x https://alice@corp.internal@github.com/").map((h) => [h.pattern, h.column]), [["hostname", 17]]);
+  assert.equal(maskText("https://u:p@build.widgets-intranet.com@github.com/"), "https://u:p@bu…@github.com/");
+});
 test("the bare-host overlap filter is linear: 1 MiB of URLs scans under 2 s (correctness recheck 15)", () => {
   const text = "https://x.io/ ".repeat(Math.ceil(1048576 / 14));
   const t0 = performance.now();
