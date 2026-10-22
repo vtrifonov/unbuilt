@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import zlib from "node:zlib";
 
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const CLI = path.join(REPO_ROOT, "scripts", "validate.mjs");
@@ -22,4 +23,76 @@ export function makeTempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unbuilt-test-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
+}
+
+const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4);
+  len.writeUInt32BE(data.length);
+  return Buffer.concat([len, Buffer.from(type, "latin1"), data, Buffer.alloc(4)]);
+}
+
+export function makePng({ text = [], ztxt = [], itxt = [], exif = null, idatBytes = 16, corruptZtxt = false, truncate = false, totalBytes = null, textAfterIdat = [] } = {}) {
+  const z = Buffer.from([0]);
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(1, 0);
+  ihdr.writeUInt32BE(1, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  const head = [PNG_MAGIC, pngChunk("IHDR", ihdr)];
+  const before = [];
+  for (const { keyword, text: t } of text) before.push(pngChunk("tEXt", Buffer.concat([Buffer.from(keyword, "latin1"), z, Buffer.from(t, "latin1")])));
+  for (const { keyword, text: t } of ztxt) {
+    const body = corruptZtxt ? Buffer.from([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]) : zlib.deflateSync(Buffer.from(t, "latin1"));
+    before.push(pngChunk("zTXt", Buffer.concat([Buffer.from(keyword, "latin1"), z, Buffer.from([0]), body])));
+  }
+  for (const { keyword, text: t, compressed = false } of itxt) {
+    const raw = Buffer.from(t, "utf8");
+    const body = compressed ? zlib.deflateSync(raw) : raw;
+    before.push(pngChunk("iTXt", Buffer.concat([Buffer.from(keyword, "latin1"), z, Buffer.from([compressed ? 1 : 0, 0]), z, z, body])));
+  }
+  if (exif !== null) before.push(pngChunk("eXIf", Buffer.from(exif, "latin1")));
+  const after = textAfterIdat.map(({ keyword, text: t }) => pngChunk("tEXt", Buffer.concat([Buffer.from(keyword, "latin1"), z, Buffer.from(t, "latin1")])));
+  const iend = pngChunk("IEND", Buffer.alloc(0));
+  let idatLen = idatBytes;
+  if (totalBytes !== null) {
+    const fixed = [...head, ...before, ...after, iend].reduce((n, b) => n + b.length, 0) + 12;
+    idatLen = totalBytes - fixed;
+    if (idatLen < 0) throw new Error(`makePng: totalBytes ${totalBytes} is smaller than ${fixed}`);
+  }
+  const buf = Buffer.concat([...head, ...before, pngChunk("IDAT", Buffer.alloc(idatLen)), ...after, iend]);
+  if (truncate) return buf.subarray(0, PNG_MAGIC.length + 25 + 5);
+  return buf;
+}
+
+export function makeJpeg({ app1 = [], com = [], raw = null } = {}) {
+  const soi = Buffer.from([0xff, 0xd8]);
+  if (raw) return Buffer.concat([soi, raw]);
+  const seg = (marker, s) => {
+    const data = Buffer.from(s, s.startsWith("http://ns.adobe.com/xap/1.0/") ? "utf8" : "latin1");
+    const h = Buffer.from([0xff, marker, 0, 0]);
+    h.writeUInt16BE(data.length + 2, 2);
+    return Buffer.concat([h, data]);
+  };
+  return Buffer.concat([soi, ...app1.map((s) => seg(0xe1, s)), ...com.map((s) => seg(0xfe, s)), Buffer.from([0xff, 0xda, 0x00, 0x02, 0xff, 0xd9])]);
+}
+
+export function makeWebp({ exif = null, xmp = null, raw = null } = {}) {
+  const chunk = (fourcc, data) => {
+    const size = Buffer.alloc(4);
+    size.writeUInt32LE(data.length);
+    return Buffer.concat([Buffer.from(fourcc, "latin1"), size, data, data.length % 2 ? Buffer.alloc(1) : Buffer.alloc(0)]);
+  };
+  let body;
+  if (raw) body = raw;
+  else {
+    const parts = [];
+    if (exif !== null) parts.push(chunk("EXIF", Buffer.from(exif, "latin1")));
+    if (xmp !== null) parts.push(chunk("XMP ", Buffer.from(xmp, "utf8")));
+    body = Buffer.concat(parts);
+  }
+  const size = Buffer.alloc(4);
+  size.writeUInt32LE(4 + body.length);
+  return Buffer.concat([Buffer.from("RIFF", "latin1"), size, Buffer.from("WEBP", "latin1"), body]);
 }

@@ -89,3 +89,66 @@ test("findScenarioSections (R-FMT-18)", () => {
   const s = findScenarioSections("intro CORE-1\n## One\nbody\n### sub\n##NotOne\n## Two\n");
   assert.deepEqual(s, [{ title: "One", startLine: 2, endLine: 5 }, { title: "Two", startLine: 6, endLine: 6 }]);
 });
+
+import zlib from "node:zlib";
+import { extractImageText } from "../scripts/lib/image-meta.mjs";
+import { makePng, makeJpeg, makeWebp } from "./helpers.mjs";
+
+test("png metadata segments (R-VAL-43)", () => {
+  const png = makePng({ text: [{ keyword: "Author", text: "/Users/alice/x" }], ztxt: [{ keyword: "Comment", text: "zipped note" }], itxt: [{ keyword: "XML:com.adobe.xmp", text: "xmp text", compressed: true }], exif: "Exif\0\0data" });
+  const r = extractImageText(png);
+  assert.equal(r.format, "png"); assert.equal(r.error, null);
+  assert.ok(r.segments.some((s) => s.includes("/Users/alice/x")));
+  assert.ok(r.segments.some((s) => s.includes("zipped note")));
+  assert.ok(r.segments.some((s) => s.includes("xmp text")));
+  assert.ok(r.segments.some((s) => s.includes("Exif")));
+});
+test("png with large IDAT and no text has no segments", () => {
+  const r = extractImageText(makePng({ idatBytes: 300 * 1024 }));
+  assert.equal(r.error, null); assert.deepEqual(r.segments, []);
+});
+test("png corrupt zTXt and truncated chunk are errors; earlier segments kept", () => {
+  const a = extractImageText(makePng({ text: [{ keyword: "k", text: "first" }], ztxt: [{ keyword: "c", text: "x" }], corruptZtxt: true }));
+  assert.match(a.error, /inflate/); assert.ok(a.segments.some((s) => s.includes("first")));
+  const b = extractImageText(makePng({ truncate: true }));
+  assert.match(b.error, /truncated/);
+});
+test("jpeg APP1 and COM segments", () => {
+  const xmp = "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>";
+  const r = extractImageText(makeJpeg({ app1: [xmp, "Exif\0\0/home/bob/pic"], com: ["a comment"] }));
+  assert.equal(r.format, "jpeg"); assert.equal(r.error, null);
+  assert.equal(r.segments.length, 3);
+  assert.ok(r.segments[0].includes("ns.adobe.com")); assert.ok(r.segments[1].includes("/home/bob/pic"));
+});
+test("webp EXIF and XMP chunks", () => {
+  const r = extractImageText(makeWebp({ exif: "Exif\0\0ops@widgets-intranet.com", xmp: "<x/>" }));
+  assert.equal(r.format, "webp"); assert.equal(r.error, null); assert.equal(r.segments.length, 2);
+});
+test("unknown magic is an error with format null", () => {
+  const r = extractImageText(Buffer.from("GIF89a....", "latin1"));
+  assert.equal(r.format, null); assert.match(r.error, /unrecognised/);
+});
+test("png text chunks after IDAT are still scanned (R-VAL-43, R-VAL-16)", () => {
+  const r = extractImageText(makePng({ textAfterIdat: [{ keyword: "Author", text: "/Users/alice/late" }] }));
+  assert.equal(r.format, "png"); assert.equal(r.error, null);
+  assert.ok(r.segments.some((s) => s.includes("/Users/alice/late")));
+});
+test("malformed containers return an error, never throw or hang (R-VAL-43)", { timeout: 5000 }, () => {
+  // JPEG APP1 whose 2-byte length (0xFFFF) runs past the end of the buffer.
+  const a = extractImageText(makeJpeg({ raw: Buffer.from([0xff, 0xe1, 0xff, 0xff, 0x41, 0x42]) }));
+  assert.equal(a.format, "jpeg"); assert.match(a.error, /malformed JPEG/);
+  // JPEG segment length 0 and length 1 (a length must be at least 2 because it includes itself).
+  const b0 = extractImageText(makeJpeg({ raw: Buffer.from([0xff, 0xe1, 0x00, 0x00, 0xff, 0xd9]) }));
+  assert.match(b0.error, /malformed JPEG/);
+  const b1 = extractImageText(makeJpeg({ raw: Buffer.from([0xff, 0xfe, 0x00, 0x01, 0xff, 0xd9]) }));
+  assert.match(b1.error, /malformed JPEG/);
+  // JPEG that is all FF after SOI: the fill-byte loop must stop at the end of the buffer.
+  const c = extractImageText(makeJpeg({ raw: Buffer.alloc(64, 0xff) }));
+  assert.match(c.error, /malformed JPEG/);
+  // WebP chunk whose size runs past the RIFF end.
+  const d = extractImageText(makeWebp({ raw: Buffer.concat([Buffer.from("EXIF", "latin1"), Buffer.from([0x00, 0x10, 0x00, 0x00]), Buffer.from("Exif\0\0", "latin1")]) }));
+  assert.equal(d.format, "webp"); assert.match(d.error, /truncated WebP/);
+  // PNG cut 5 bytes into a tEXt chunk, with no IDAT: truncation before IDAT is an error.
+  const e = extractImageText(makePng({ text: [{ keyword: "Author", text: "cut" }], truncate: true }));
+  assert.equal(e.format, "png"); assert.match(e.error, /truncated PNG/);
+});
