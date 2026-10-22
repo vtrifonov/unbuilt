@@ -462,6 +462,36 @@ function budgetModuleCount(ctx) {
   return [finding("error", "budget-module-count", ".", null, `${n} modules are declared; the limit is ${MAX_MODULES} (FORMAT.md §8)`)];
 }
 
+const SPECIAL_KINDS = { symlink: "symbolic link", fifo: "FIFO", socket: "socket", device: "device" };
+const FORMAT_OF_EXT = { png: "png", jpg: "jpeg", jpeg: "jpeg", webp: "webp" };
+
+function fileTypes(ctx) {
+  const out = [];
+  const err = (p, msg) => out.push(finding("error", "file-types", p, null, `${msg} (FORMAT.md §7)`));
+  for (const e of ctx.entries) {
+    if (Object.hasOwn(SPECIAL_KINDS, e.kind)) {
+      err(e.path, `${e.path} is a ${SPECIAL_KINDS[e.kind]}; links and special files cannot be scanned`);
+      continue;
+    }
+    if (e.kind === "unreadable") {
+      err(e.path, `${e.path} cannot be read`);
+      continue;
+    }
+    if (e.kind !== "file") continue;
+    if (!e.isText && !IMAGE_EXTS.includes(e.ext)) {
+      err(e.path, `${e.path} is not a text file or an allowed image`);
+      continue;
+    }
+    const img = ctx.images.get(e.path);
+    if (!img) continue;
+    let reason = img.error;
+    if (reason === null && img.format !== FORMAT_OF_EXT[e.ext]) reason = `${img.format} content with a ${e.ext} extension`;
+    if (reason !== null) err(e.path, `${e.path}: image cannot be parsed for metadata scanning (${reason})`);
+  }
+  for (const d of ctx.nodeModulesDirs) err(d, `${d} is a node_modules directory`);
+  return out;
+}
+
 RULES.push(
   { name: "required-files", fn: requiredFiles, needsMeta: false },
   { name: "module-files", fn: moduleFiles, needsMeta: true },
@@ -490,6 +520,7 @@ RULES.push(
   { name: "budget-total-words", fn: budgetTotalWords, needsMeta: false },
   { name: "budget-image", fn: budgetImage, needsMeta: false },
   { name: "budget-module-count", fn: budgetModuleCount, needsMeta: true },
+  { name: "file-types", fn: fileTypes, needsMeta: false },
 );
 
 export function isCalendarDate(s) {

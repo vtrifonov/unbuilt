@@ -479,8 +479,47 @@ test("budget edge cases (rules 24–26, R-VAL-33, R-VAL-42)", (t) => {
 });
 
 test("each generated budget fixture fires only its own rule (plan decision 9)", (t) => {
-  for (const rule of ["budget-file-lines", "budget-total-words", "budget-image", "budget-module-count"]) {
+  for (const rule of ["budget-file-lines", "budget-total-words", "budget-image", "budget-module-count", "file-types"]) {
     const { result } = runFixture(t, rule);
     assert.deepEqual([...result.errors, ...result.warnings].map((f) => f.rule), [rule], rule);
   }
+});
+
+import os from "node:os";
+import { execFileSync } from "node:child_process";
+const isWin = process.platform === "win32";
+const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+const ft = (r, file) => r.errors.filter((f) => f.rule === "file-types" && f.file === file);
+// Probe once: can this platform create a symlink? (R-TST-11: skip with a reason, never pass silently)
+const canSymlink = (() => {
+  try { const d = fs.mkdtempSync(path.join(os.tmpdir(), "unbuilt-probe-")); fs.writeFileSync(path.join(d, "a"), "x"); fs.symlinkSync("a", path.join(d, "b")); fs.rmSync(d, { recursive: true, force: true }); return true; } catch { return false; }
+})();
+test("file-types: symlinked required file is both missing and a file-types finding (R-VAL-42, spec 12.1)", { skip: canSymlink ? false : "platform refuses symlinkSync" }, (t) => {
+  const link = runFixture(t, "file-types", { mutate: (d) => { fs.rmSync(path.join(d, "constraints.md")); fs.symlinkSync("README.md", path.join(d, "constraints.md")); } });
+  assert.equal(ft(link.result, "constraints.md").length, 1); assert.ok(has(link.result, "required-files", "error", "constraints.md"));
+  assert.match(ft(link.result, "constraints.md")[0].message, /symbolic link/);
+});
+test("file-types sub-cases (R-VAL-42, R-VAL-43)", (t) => {
+  const nul = runFixture(t, "file-types", { mutate: (d) => fs.writeFileSync(path.join(d, "odd.md"), Buffer.from([0xff, 0xfe, 0x61, 0x00, 0x62, 0x00])) });
+  assert.equal(ft(nul.result, "odd.md").length, 1);
+  const nm = runFixture(t, "file-types", { mutate: (d) => { fs.mkdirSync(path.join(d, "node_modules/x"), { recursive: true }); writeIn(d, "node_modules/x/index.js", "1"); } });
+  assert.equal(ft(nm.result, "node_modules").length, 1);
+  const renamed = runFixture(t, "file-types", { mutate: (d) => fs.writeFileSync(path.join(d, "design/shot.png"), makeJpeg({ app1: ["Exif\0\0/Users/alice/pic"] })) });
+  assert.equal(ft(renamed.result, "design/shot.png").length, 1); assert.ok(renamed.result.errors.some((f) => f.rule === "leak-home-path" && f.file === "design/shot.png"));
+  const corrupt = runFixture(t, "file-types", { mutate: (d) => fs.writeFileSync(path.join(d, "design/shot.png"), makePng({ ztxt: [{ keyword: "c", text: "x" }], corruptZtxt: true })) });
+  assert.equal(ft(corrupt.result, "design/shot.png").length, 1);
+  const upper = runFixture(t, "file-types", { mutate: (d) => fs.writeFileSync(path.join(d, "design/Shot.PNG"), makePng({})) });
+  assert.equal(ft(upper.result, "design/Shot.PNG").length, 0);
+  // A malformed JPEG (APP1 length past the end) is a file-types finding, not an internal error (Task 14 risk, R-VAL-43).
+  const bad = runFixture(t, "file-types", { mutate: (d) => fs.writeFileSync(path.join(d, "design/bad.jpg"), makeJpeg({ raw: Buffer.from([0xff, 0xe1, 0xff, 0xff, 0x41]) })) });
+  assert.equal(bad.code, 1);
+  assert.equal(ft(bad.result, "design/bad.jpg").length, 1); assert.match(ft(bad.result, "design/bad.jpg")[0].message, /malformed JPEG segment/);
+});
+test("file-types FIFO", { skip: isWin ? "no FIFOs on Windows" : false }, (t) => {
+  const r = runFixture(t, "file-types", { mutate: (d) => execFileSync("mkfifo", [path.join(d, "pipe")]) });
+  assert.ok(r.result.errors.some((f) => f.rule === "file-types" && f.file === "pipe" && f.message.includes("FIFO")));
+});
+test("file-types unreadable file", { skip: isWin ? "no POSIX modes on Windows" : isRoot ? "root can read mode-000 files" : false }, (t) => {
+  const r = runFixture(t, "file-types", { mutate: (d) => { writeIn(d, "secret.md", "x"); fs.chmodSync(path.join(d, "secret.md"), 0); } });
+  assert.ok(r.result.errors.some((f) => f.rule === "file-types" && f.file === "secret.md" && f.message.includes("cannot be read")));
 });

@@ -82,6 +82,12 @@ function generate(dir, spec) {
       case "modules":
         generateModules(dir, spec.modules);
         break;
+      case "binary": {
+        const buf = Buffer.alloc(64);
+        Buffer.from("SQLite format 3", "latin1").copy(buf);
+        writeIn(dir, spec.binary, buf);
+        break;
+      }
       default:
         throw new Error(`unknown generate key: ${key}`);
     }
