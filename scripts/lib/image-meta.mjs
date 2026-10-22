@@ -3,18 +3,24 @@ import zlib from "node:zlib";
 const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const XMP_PREFIX = "http://ns.adobe.com/xap/1.0/";
 
-// Inflated text chunks are capped so a small file cannot exhaust memory (decompression bomb).
+// Inflated text is capped per image, across all of its chunks, so a small file cannot exhaust memory (decompression bomb).
 const MAX_INFLATED_BYTES = 1048576;
+const OVER_CAP = "metadata inflates past 1 MiB";
 
 const utf8 = (b) => new TextDecoder("utf-8").decode(b);
 
 // Returns the inflated buffer, or a string error that becomes the "cannot be parsed" finding.
-function inflateCapped(body, chunk) {
+// `budget.left` is the number of inflated bytes this image may still produce.
+function inflateCapped(body, chunk, budget) {
+  let out;
   try {
-    return zlib.inflateSync(body, { maxOutputLength: MAX_INFLATED_BYTES });
+    out = zlib.inflateSync(body, { maxOutputLength: Math.max(1, budget.left) });
   } catch (err) {
-    return err?.code === "ERR_BUFFER_TOO_LARGE" ? `${chunk} chunk inflates past 1 MiB` : `${chunk} chunk failed to inflate`;
+    return err?.code === "ERR_BUFFER_TOO_LARGE" ? OVER_CAP : `${chunk} chunk failed to inflate`;
   }
+  if (out.length > budget.left) return OVER_CAP;
+  budget.left -= out.length;
+  return out;
 }
 const latin1 = (b) => Buffer.from(b).toString("latin1");
 
@@ -33,6 +39,7 @@ function splitNul(data, from = 0) {
 function parsePng(buf, segments) {
   let off = 8;
   let seenIdat = false;
+  const budget = { left: MAX_INFLATED_BYTES };
   for (;;) {
     if (buf.length - off < 12) return seenIdat ? null : "truncated PNG chunk";
     const len = buf.readUInt32BE(off);
@@ -48,7 +55,7 @@ function parsePng(buf, segments) {
       segments.push(latin1(kw) + "\n" + latin1(data.subarray(p)));
     } else if (type === "zTXt") {
       const [kw, p] = splitNul(data);
-      const text = inflateCapped(data.subarray(p + 1), "zTXt");
+      const text = inflateCapped(data.subarray(p + 1), "zTXt", budget);
       if (typeof text === "string") return text;
       segments.push(latin1(kw) + "\n" + latin1(text));
     } else if (type === "iTXt") {
@@ -58,7 +65,7 @@ function parsePng(buf, segments) {
       const [tkw, textStart] = splitNul(data, afterLang);
       let body = data.subarray(textStart);
       if (compressed) {
-        body = inflateCapped(body, "iTXt");
+        body = inflateCapped(body, "iTXt", budget);
         if (typeof body === "string") return body;
       }
       segments.push(latin1(kw) + "\n" + utf8(tkw) + "\n" + utf8(body));

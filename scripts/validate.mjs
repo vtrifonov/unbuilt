@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { RULES, SUPPORTED_FORMAT_VERSION, finding, isCalendarDate } from "./lib/rules.mjs";
+import { MAX_IMAGE_BYTES, RULES, SUPPORTED_FORMAT_VERSION, finding, isCalendarDate } from "./lib/rules.mjs";
 import { DEFAULT_ALLOW_HOSTS, maskText, scanText } from "./lib/redaction.mjs";
 import { walkInstance, readText } from "./lib/walk.mjs";
 import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
@@ -117,7 +117,8 @@ export function buildContext(root, today) {
     const abs = path.join(root, e.path);
     if (e.isText && !e.tooLarge) {
       try { texts.set(e.path, readText(abs)); } catch { /* unreadable */ }
-    } else if (IMAGE_META_EXTS.includes(e.ext)) {
+    } else if (IMAGE_META_EXTS.includes(e.ext) && e.size <= MAX_IMAGE_BYTES) {
+      // An image over the size budget is reported by budget-image and never read or parsed.
       let buf = null;
       try { buf = fs.readFileSync(abs); } catch { /* unreadable */ }
       if (buf) images.set(e.path, extractImageText(buf));

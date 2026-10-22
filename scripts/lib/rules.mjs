@@ -406,7 +406,7 @@ export const leakSecret = leakRule("leak-secret", ["secret"], (m) => `secret-sha
 
 const MAX_MD_LINES = 1500;
 const MAX_MD_WORDS = 60000;
-const MAX_IMAGE_BYTES = 2097152;
+export const MAX_IMAGE_BYTES = 2097152;
 const MAX_MODULES = 12;
 const ALLOWED_IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "svg"];
 const REJECTED_IMAGE_EXTS = ["gif", "bmp", "tif", "tiff", "heic", "ico", "avif"];
