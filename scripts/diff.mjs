@@ -128,15 +128,23 @@ export function scenarios(side) {
   const byKey = new Map();
   const preamble = new Map();
   const citeSets = new Map();
+  const parsed = new Map();
+  const load = (file) => {
+    if (parsed.has(file)) return parsed.get(file);
+    const raw = side.text.get(file).split("\n");
+    const blanked = blankCommentsAndFences(side.text.get(file)).split("\n");
+    const found = findScenarioSections(blanked.join("\n"));
+    const pre = raw.slice(0, found.length > 0 ? found[0].startLine - 1 : raw.length).join("\n");
+    const sections = found.map((s) => ({ title: s.title, body: raw.slice(s.startLine, trimmedEnd(raw, s.startLine, s.endLine)).join("\n"), cites: findCitations(blanked.slice(s.startLine, s.endLine).join("\n"), side.prefixes).map((c) => c.id) }));
+    parsed.set(file, { pre, sections });
+    return parsed.get(file);
+  };
   for (const m of side.modules) {
     const file = m.path === null ? null : `${m.path}/scenarios.md`;
     if (file === null || !side.text.has(file)) continue;
-    const raw = side.text.get(file).split("\n");
-    const blanked = blankCommentsAndFences(side.text.get(file)).split("\n");
-    const sections = findScenarioSections(blanked.join("\n"));
-    preamble.set(file, raw.slice(0, sections.length > 0 ? sections[0].startLine - 1 : raw.length).join("\n"));
+    const { pre, sections } = load(file);
+    preamble.set(file, pre);
     for (const s of sections) {
-      const body = raw.slice(s.startLine, trimmedEnd(raw, s.startLine, s.endLine)).join("\n");
       const key = `${m.id}\u0000${s.title}`;
       let entry = byKey.get(key);
       if (!entry) {
@@ -144,9 +152,9 @@ export function scenarios(side) {
         byKey.set(key, entry);
         citeSets.set(entry, new Set());
       }
-      entry.bodies.push(body);
+      entry.bodies.push(s.body);
       const set = citeSets.get(entry);
-      for (const c of findCitations(blanked.slice(s.startLine, s.endLine).join("\n"), side.prefixes)) set.add(c.id);
+      for (const id of s.cites) set.add(id);
     }
   }
   for (const [entry, set] of citeSets) entry.cites = [...set].sort(compareIds);
@@ -264,10 +272,13 @@ function compareFiles(o, n, ctx, out) {
   };
   compare("SPEC.md", "SPEC.md", residual(o, "SPEC.md", ctx.oldDecl.lines.get("SPEC.md"), 1), residual(n, "SPEC.md", ctx.newDecl.lines.get("SPEC.md"), 1));
   compare("BUILD.md", "BUILD.md", residual(o, "BUILD.md", ctx.oldMs.claimed, 0), residual(n, "BUILD.md", ctx.newMs.claimed, 0));
+  const donePairs = new Set();
   for (const [id, om] of oldBy) {
     const nm = newBy.get(id);
     if (!nm || om.path === null || nm.path === null) continue;
     const [op, np] = [`${om.path}/`, `${nm.path}/`];
+    if (donePairs.has(`${op}\u0000${np}`)) continue;
+    donePairs.add(`${op}\u0000${np}`);
     compare(`${op}SPEC.md`, `${np}SPEC.md`, residual(o, `${op}SPEC.md`, ctx.oldDecl.lines.get(`${op}SPEC.md`), 1), residual(n, `${np}SPEC.md`, ctx.newDecl.lines.get(`${np}SPEC.md`), 1));
     compare(`${op}scenarios.md`, `${np}scenarios.md`, ctx.oldScen.preamble.get(`${op}scenarios.md`) ?? null, ctx.newScen.preamble.get(`${np}scenarios.md`) ?? null);
     compare(`${op}problem.md`, `${np}problem.md`, residual(o, `${op}problem.md`, none, 0), residual(n, `${np}problem.md`, none, 0));
@@ -311,9 +322,39 @@ export function diffInstances(oldDir, newDir) {
   return result;
 }
 
+const at = (e) => `${e.id} ${e.file}:${e.line}`;
+const shift = (e) => `${e.id} ${e.from} to ${e.to}`;
+const titled = (e) => `${e.number} "${e.title}"`;
+const state = (v) => (v ? "inferred" : "stated");
+const FORMAT = {
+  "requirements.added": (e) => `${e.id} ${e.modality}${e.inferred ? " inferred" : ""} ${e.file}:${e.line}`,
+  "requirements.changed": at,
+  "requirements.retired": at,
+  "requirements.modality": shift,
+  "modules.maturity": shift,
+  "requirements.inferred": (e) => `${e.id} ${state(e.from)} to ${state(e.to)}`,
+  "requirements.removed": (e) => `${e.id} ${e.old_file} (no retired line)`,
+  "modules.added": (e) => `${e.id} ${e.maturity}`,
+  "modules.removed": (e) => e.id,
+  "milestones.added": titled,
+  "milestones.removed": titled,
+  "milestones.changed": (e) => {
+    const covers = [...e.covers_added.map((c) => `+${c}`), ...e.covers_removed.map((c) => `-${c}`)];
+    return titled(e) + (covers.length > 0 ? ` covers ${covers.join(" ")}` : "") + (e.title_changed ? " title changed" : "") + (covers.length === 0 && !e.title_changed ? " text changed" : "");
+  },
+};
+const scenarioLine = (e) => `${e.module} "${e.title}"${e.cites.length > 0 ? ` cites ${e.cites.join(" ")}` : ""}`;
+
 export function formatHuman(result) {
   if (!result.changed) return "no differences\n";
-  return "";
+  const lines = [];
+  for (const [group, keys] of Object.entries(LISTS)) {
+    for (const key of keys) {
+      const fmt = FORMAT[`${group}.${key}`] ?? (group === "scenarios" ? scenarioLine : String);
+      for (const e of result[group][key]) lines.push(sanitize(`${group}.${key}  ${fmt(e)}`));
+    }
+  }
+  return `${lines.join("\n")}\n${lines.length} difference(s)\n`;
 }
 
 export function formatJson(result) {

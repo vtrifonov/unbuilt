@@ -661,3 +661,105 @@ test("a directory named unbuilt.yaml is not a regular file (R-DIF-3)", (t) => {
   assert.equal(r.stdout, "");
   assert.ok(r.stderr.startsWith("new: unbuilt.yaml: not a regular file"), r.stderr);
 });
+
+function handResult(fill) {
+  const r = { changed: true, old: { name: "a", unbuilt: 1 }, new: { name: "a", unbuilt: 1 } };
+  for (const [g, keys] of Object.entries(LISTS)) r[g] = Object.fromEntries(keys.map((k) => [k, []]));
+  fill(r);
+  return r;
+}
+const withTitle = (entry, title) => Object.defineProperty(entry, "title", { value: title, enumerable: false });
+
+test("human output prints the R-DIF-9 sample exactly (R-DIF-9, R-DIF-11)", () => {
+  const r = handResult((x) => {
+    x.requirements.added.push({ id: "CAPTURE-9", modality: "MUST", inferred: false, file: "modules/capture/SPEC.md", line: 21 });
+    x.requirements.changed.push({ id: "HISTORY-2", file: "modules/history/SPEC.md", line: 8, old_line: 8 });
+    x.requirements.modality.push({ id: "PICKER-4", from: "SHOULD", to: "MUST" });
+    x.requirements.inferred.push({ id: "PASTE-3", from: true, to: false });
+    x.requirements.retired.push({ id: "CORE-3", file: "modules/core/SPEC.md", line: 12 });
+    x.requirements.removed.push({ id: "SETTINGS-7", old_file: "modules/settings/SPEC.md" });
+    x.scenarios.added.push({ module: "CAPTURE", title: "Ignores a concealed item", cites: ["CAPTURE-9"] });
+    x.modules.maturity.push({ id: "PASTE", from: "partial", to: "shipped" });
+    x.substitutions.changed.push("storage");
+    x.milestones.changed.push(withTitle({ number: 2, covers_added: ["HISTORY-9"], covers_removed: [], title_changed: false }, "History"));
+    x.files.changed.push("constraints.md");
+  });
+  assert.equal(formatHuman(r), [
+    "requirements.added  CAPTURE-9 MUST modules/capture/SPEC.md:21",
+    "requirements.changed  HISTORY-2 modules/history/SPEC.md:8",
+    "requirements.modality  PICKER-4 SHOULD to MUST",
+    "requirements.inferred  PASTE-3 inferred to stated",
+    "requirements.retired  CORE-3 modules/core/SPEC.md:12",
+    "requirements.removed  SETTINGS-7 modules/settings/SPEC.md (no retired line)",
+    "scenarios.added  CAPTURE \"Ignores a concealed item\" cites CAPTURE-9",
+    "modules.maturity  PASTE partial to shipped",
+    "substitutions.changed  storage",
+    "milestones.changed  2 \"History\" covers +HISTORY-9",
+    "files.changed  constraints.md",
+    "11 difference(s)",
+  ].join("\n") + "\n");
+});
+
+test("human output covers every other list form (R-DIF-10)", () => {
+  const r = handResult((x) => {
+    x.requirements.added.push({ id: "CORE-3", modality: "MAY", inferred: true, file: "modules/core/SPEC.md", line: 7 });
+    x.requirements.inferred.push({ id: "CORE-1", from: false, to: true });
+    x.scenarios.removed.push({ module: "PICKER", title: "Old title", cites: [] });
+    x.modules.added.push({ id: "SYNC", maturity: "sketched" });
+    x.modules.removed.push({ id: "LEGACY" });
+    x.substitutions.added.push("clipboard-api");
+    x.substitutions.removed.push("legacy");
+    x.milestones.added.push({ number: 6, title: "Sync" });
+    x.milestones.removed.push({ number: 5, title: "Old" });
+    x.milestones.changed.push(withTitle({ number: 2, covers_added: ["HISTORY-9"], covers_removed: ["HISTORY-1"], title_changed: true }, "History"));
+    x.milestones.changed.push(withTitle({ number: 3, covers_added: [], covers_removed: [], title_changed: false }, "Export"));
+    x.files.added.push("decisions/keep-local.md");
+    x.files.removed.push("old.md");
+  });
+  assert.equal(formatHuman(r), [
+    "requirements.added  CORE-3 MAY inferred modules/core/SPEC.md:7",
+    "requirements.inferred  CORE-1 stated to inferred",
+    "scenarios.removed  PICKER \"Old title\"",
+    "modules.added  SYNC sketched",
+    "modules.removed  LEGACY",
+    "substitutions.added  clipboard-api",
+    "substitutions.removed  legacy",
+    "milestones.added  6 \"Sync\"",
+    "milestones.removed  5 \"Old\"",
+    "milestones.changed  2 \"History\" covers +HISTORY-9 -HISTORY-1 title changed",
+    "milestones.changed  3 \"Export\" text changed",
+    "files.added  decisions/keep-local.md",
+    "files.removed  old.md",
+    "13 difference(s)",
+  ].join("\n") + "\n");
+});
+
+test("human output end to end (R-DIF-9)", (t) => {
+  const c = sides(t);
+  append(c.newDir, CORE, "- **CORE-3** (MAY) (inferred) Notes can be pinned.\n");
+  edit(c.newDir, CORE, "**CORE-2** (SHOULD)", "**CORE-2** (MUST)");
+  const r = runDiff([c.oldDir, c.newDir]);
+  assert.equal(r.code, 1, r.stderr);
+  assert.equal(r.stdout, "requirements.added  CORE-3 MAY inferred modules/core/SPEC.md:7\nrequirements.modality  CORE-2 SHOULD to MUST\n2 difference(s)\n");
+});
+
+test("many module entries sharing one path parse it once per side (review follow-up, R-DIF-23)", (t) => {
+  const sections = Array.from({ length: 300 }, (_, i) => `\n## Section ${i}\n\nCovers: CORE-1\nGiven x\n`).join("");
+  const extra = (n) => Array.from({ length: n }, (_, i) => `  - id: M${i}\n    path: modules/core\n    maturity: shipped\n`).join("");
+  const build = (c, n) => {
+    for (const d of [c.oldDir, c.newDir]) {
+      edit(d, "unbuilt.yaml", CORE_MATURITY, CORE_MATURITY + extra(n));
+      append(d, CORE_SCEN, sections);
+    }
+    append(c.newDir, CORE_SCEN, "\n## Fresh\n\nCovers: CORE-2\nGiven y\n");
+  };
+  const single = diffJson(t, (c) => build(c, 1));
+  const many = timed(() => diffJson(t, (c) => build(c, 999)));
+  assert.ok(many.ms < FAST_MS, `${many.ms.toFixed(0)} ms`);
+  assert.equal(many.code, 1, many.stderr);
+  const fresh = (j, id) => j.scenarios.added.filter((e) => e.module === id);
+  const [expected] = fresh(single.json, "M0");
+  assert.equal(expected.title, "Fresh");
+  assert.equal(many.json.scenarios.added.length, 1000);
+  for (const id of ["CORE", ...Array.from({ length: 999 }, (_, i) => `M${i}`)]) assert.deepEqual(fresh(many.json, id), [{ ...expected, module: id }], id);
+});
