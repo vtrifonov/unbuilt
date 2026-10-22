@@ -84,6 +84,7 @@ test("build skill update flow (R-UPD-85, R-UPD-86)", () => {
     "Say `continue` to start update 1.",
     "Validate the new revision before you compare or plan against it.",
     "A commit hash difference alone never triggers an update.",
+    "Never override a recorded departure or addition without asking the builder.",
     "Run every git command with `-c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.ext.allow=never -c protocol.file.allow=user`.",
     "Clone a git URL only with `GIT_LFS_SKIP_SMUDGE=1 GIT_TERMINAL_PROMPT=0 git -c core.fsmonitor=false -c core.hooksPath=/dev/null -c protocol.ext.allow=never -c protocol.file.allow=user -c safe.bareRepository=explicit -c filter.lfs.smudge= -c filter.lfs.process= -c filter.lfs.required=false clone --depth 1 --no-recurse-submodules -- '<url>' '<scratch>/clone'`.",
     "Single-quote every value you put into a shell command, and write each `'` inside it as `'\\''`.",
