@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MAX_IMAGE_BYTES, RULES, SUPPORTED_FORMAT_VERSION, finding, isCalendarDate } from "./lib/rules.mjs";
-import { DEFAULT_ALLOW_HOSTS, maskText, scanText } from "./lib/redaction.mjs";
+import { DEFAULT_ALLOW_HOSTS, maskMatch, maskText, scanText } from "./lib/redaction.mjs";
 import { walkInstance, readText } from "./lib/walk.mjs";
 import { blankCommentsAndFences, findAttempts, findCitations, findScenarioSections } from "./lib/markdown.mjs";
 import { extractImageText } from "./lib/image-meta.mjs";
@@ -120,15 +120,41 @@ function findEmbeds(texts) {
   return embeds;
 }
 
+// A Users/<name> or home/<name> chain in a directory path is a home path (amendment 8a clarification). Every
+// directory is walked, so the chain is reported once, at the directory whose name ends it.
+const HOME_CHAIN_PARENTS = new Set(["Users", "home"]);
+const HOME_CHAIN_NAME_RE = /^[A-Za-z0-9._-]+/;
+function homeChainName(parent, name) {
+  if (!HOME_CHAIN_PARENTS.has(parent)) return null;
+  const m = HOME_CHAIN_NAME_RE.exec(name);
+  return m && m[0] !== "Shared" ? m[0] : null;
+}
+
+// The file column is masked per path segment, the unit leak detection uses; a directory segment that ends a
+// home chain is masked whole (amendment 8a clarification).
+function maskPath(p, isDir, opts) {
+  const segs = p.split("/");
+  return segs.map((s, i) => {
+    const dirSeg = i < segs.length - 1 || isDir;
+    if (dirSeg && i > 0 && homeChainName(segs[i - 1], s) !== null) return maskMatch(s);
+    return maskText(s, opts);
+  }).join("/");
+}
+
 // Leak scanning happens once per text, image segment and path; the five leak-* rules filter these hits by pattern.
 // Each file and directory is scanned by its own name (the last path segment), so a leak in a directory name is
 // reported once, at the directory, with no line (spec amendment 8a).
-function collectLeakHits(texts, images, embeds, paths, opts) {
+function collectLeakHits(texts, images, embeds, paths, dirs, opts) {
   const hits = [];
   const keep = (file, found, line) => {
     for (const h of found) hits.push({ file, line: line === undefined ? h.line : line, match: h.match, pattern: h.pattern, kind: h.kind });
   };
   for (const p of paths) if (p !== "") keep(p, scanText(p.slice(p.lastIndexOf("/") + 1), opts), null);
+  for (const d of dirs) {
+    const segs = d.split("/");
+    const name = segs.length > 1 ? homeChainName(segs[segs.length - 2], segs[segs.length - 1]) : null;
+    if (name !== null) hits.push({ file: d, line: null, match: `/${segs[segs.length - 2]}/${name}`, pattern: "home-path" });
+  }
   for (const [file, text] of texts) keep(file, scanText(text, opts));
   for (const [file, img] of images) {
     if (img.format === null) continue;
@@ -186,7 +212,7 @@ export function buildContext(root, today) {
   const allowHosts = DEFAULT_ALLOW_HOSTS;
   const exactHosts = metaUsable ? exactHostsOf(meta) : [];
   const embeds = findEmbeds(texts);
-  const leakHits = collectLeakHits(texts, images, embeds, [...entries.map((e) => e.path), ...dirs], { allowHosts, exactHosts });
+  const leakHits = collectLeakHits(texts, images, embeds, [...entries.map((e) => e.path), ...dirs], dirs, { allowHosts, exactHosts });
   return {
     root, today, entries, dirs: new Set(dirs), files, texts, images, embeds, nodeModulesDirs, yaml, meta, versionError, metaUsable,
     modules, moduleIds, prose, declFiles, attempts, declarations, scenarioFiles, scenarios, citations,
@@ -203,7 +229,7 @@ export function runRules(ctx) {
   }
   // Every message and file column, the version short-circuit included, is masked as the last step (amendment 8a).
   const opts = { allowHosts: ctx.allowHosts, exactHosts: ctx.exactHosts };
-  return findings.map((f) => ({ ...f, file: maskText(f.file, opts), message: maskText(f.message, opts) }));
+  return findings.map((f) => ({ ...f, file: maskPath(f.file, ctx.dirs.has(f.file), opts), message: maskText(f.message, opts) }));
 }
 
 export function validate(dir, today) {

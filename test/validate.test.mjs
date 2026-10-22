@@ -624,6 +624,24 @@ test("file and directory names are leak-scanned with no line, and the file colum
   }
   assert.ok(h.stdout.includes("modules/bu…"), h.stdout);
 });
+test("path leaks and file-column masking use the same per-segment unit; a home/<name> directory chain is a home path (amendment 8a clarification)", (t) => {
+  const email = ["ops", "widgets-intranet.com"].join("@");
+  const dir = makeTempDir(t); copyMinimalValid(dir);
+  writeIn(dir, "design/home/screen.md", `# Screen\n\nContact ${email} today.\n`);
+  writeIn(dir, "notes/home/alice/a.md", "# A\n\nclean\n");
+  writeIn(dir, "notes/home/alice/sub/c.md", "# C\n\nclean\n");
+  writeIn(dir, "notes/Users/bob/b.md", `# B\n\nContact ${email} today.\n`);
+  const j = runJson([dir, "--json", "--today", "2026-10-22"]);
+  assert.equal(j.code, 1);
+  assert.deepEqual(leakRules(j.result).map((f) => [f.rule, f.file, f.line ?? null]), [
+    ["leak-email", "design/home/screen.md", 3],
+    ["leak-home-path", "notes/Users/bo…", null],
+    ["leak-email", "notes/Users/bo…/b.md", 3],
+    ["leak-home-path", "notes/home/al…", null],
+  ]);
+  const h = runCli([dir, "--today", "2026-10-22"]);
+  for (const out of [j.stdout, h.stdout]) assert.ok(!out.includes("alice") && !out.includes("bob"), out);
+});
 test("rule gating on YAML failure keeps the leak rules running (R-VAL-14)", (t) => {
   const { result } = runFixture(t, "yaml-parse", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "\nContact alice@widgets-intranet.com.\n") });
   const rules = new Set([...result.errors, ...result.warnings].map((f) => f.rule));
