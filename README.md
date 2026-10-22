@@ -69,7 +69,7 @@ Other agents: paste [`prompts/extract.md`](prompts/extract.md), [`prompts/build.
 
 ## Quick start
 
-Requires Node 22 or later. There is nothing to install: the validator has no dependencies.
+Requires Node 22 or later. The validator has no dependencies.
 
 ```sh
 git clone https://github.com/vtrifonov/unbuilt
@@ -84,6 +84,7 @@ ok: clipjar passes unbuilt format 1
 - **Build the example:** run `/unbuilt:build` on `examples/clipjar` with an empty project directory.
 - **Extract your own:** run `/unbuilt:extract` on your project, answer the redaction gate, then run `node scripts/validate.mjs <output-dir>` until it prints `ok`.
 - **Start from scratch:** copy `template/`. It already passes the validator.
+- **Update after a code change:** run `/unbuilt:extract <source-dir> <instance-dir> since <tag>`. It reads only what changed, keeps every requirement ID and retires removed ones.
 
 ## The example
 
@@ -171,8 +172,6 @@ The format and the plugin are versioned separately. Both are tracked in [CHANGEL
 
 - **Format** versions are integers, declared as `unbuilt: 1` in every instance. The version is bumped only when a required file or field changes, a rule becomes stricter, or an ID or modality rule changes meaning. New optional files, new warnings and prose clarifications do not bump it. A validator supports exactly one format version.
 - **Plugin** versions follow semver, independent of the format.
-
-Format 1 is the first release. Expect the contract to stay stable and the skills to move faster.
 
 ## Contributing
 

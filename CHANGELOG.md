@@ -26,3 +26,4 @@ Notes (deliberate spec interpretations, recorded here because the branch merges 
 - Skills `extract`, `build` and `validate`, invoked as `/unbuilt:extract`, `/unbuilt:build` and `/unbuilt:validate`. The marketplace is named `unbuilt`, so the install id is `unbuilt@unbuilt`.
 - Prompt fallbacks in `prompts/` for agents that are not Claude Code.
 - A starting template and the `examples/clipjar` instance.
+- Extract update mode takes an optional `since <ref>`: it reads only the source files changed after that git revision, interviews only about the affected modules, and still runs the redaction gate over the whole instance.
