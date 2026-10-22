@@ -83,6 +83,33 @@ test("whitespace and line-break entities after the comma or inside the payload d
   assert.deepEqual(pick(prose.result), []);
 });
 
+test("prose after a data: prefix is not an embed: a payload with whitespace and no image magic is skipped (correctness recheck 19, amendment 7a)", (t) => {
+  const prose = [
+    "The export returns data:image/png;base64, then the bytes.",
+    "Thumbnails are sent as a data:image/png;base64, string in the JSON body.",
+    "Avatars are inlined as data:image/webp;base64, encoded bytes.",
+    "Inline images use data:image/png;base64,\nfollowed by the encoded bytes on the next line.",
+    "A data:image/png;base64, prefix marks an inline image.",
+    "Accepts data:image/svg+xml;base64, payloads too.",
+  ];
+  for (const line of prose) {
+    const { code, result } = runWith(t, { "notes.md": `# Notes\n\n${line}\n` });
+    assert.deepEqual(pick(result), [], line);
+    assert.equal(code, 0, line);
+  }
+  // Whitespace with image magic is still an embed, and a payload without whitespace still fails closed.
+  const wrapped = (bytes) => bytes.toString("base64").match(/.{1,8}/g).join("\n");
+  const gif = runWith(t, { "notes.md": "# Notes\n\nx data:image/gif;base64," + wrapped(Buffer.from("GIF89a\x01\x00\x01\x00\x00\x00\x00;", "latin1")) + "\n" });
+  assert.deepEqual(pick(gif.result), [["file-types", "notes.md", 3]]);
+  const svg = runWith(t, { "notes.md": "# Notes\n\nx data:image/svg+xml;base64," + wrapped(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')) + "\n" });
+  assert.deepEqual(pick(svg.result), [["file-types", "notes.md", 3]]);
+  const xml = runWith(t, { "notes.md": "# Notes\n\nx data:image/png;base64, " + Buffer.from('<?xml version="1.0"?><svg/>').toString("base64") + "\n" });
+  assert.deepEqual(pick(xml.result), [["file-types", "notes.md", 3]]);
+  const tight = runWith(t, { "notes.md": "# Notes\n\nx data:image/png;base64,thenthebytes\n" });
+  assert.deepEqual(pick(tight.result), [["file-types", "notes.md", 3]]);
+  assert.match(tight.result.errors[0].message, /unrecognised image format/);
+});
+
 const bombPng = () => makePng({ ztxt: [{ keyword: "Comment", deflated: zlib.deflateSync(Buffer.alloc(1000000, 0x61)) }] });
 
 test("one inflate budget of 8 MiB is shared by every image in a run; segments go to a callback, not an array (amendment 7d revised)", () => {

@@ -60,7 +60,7 @@ The walk skips any entry named `.git`, file or directory. The `leak-*` rules sca
 | `budget-total-words` | Total Markdown is at most 60,000 words. | error |
 | `budget-image` | Each image is at most 2 MB and of type png, jpg, jpeg, webp or svg. An image over the limit is not parsed, nor are the embeds of such an `.svg`. | error |
 | `budget-module-count` | At most 12 modules are declared. | error |
-| `file-types` | Every entry is a regular, readable text file or an allowed image that parses; an `.svg` must be a text file; a `data:image/` URI is a base64 png, jpeg or webp; image metadata inflates to at most 1 MiB per image or embed and 8 MiB per run; no `node_modules/`. | error |
+| `file-types` | Every entry is a regular, readable text file or an allowed image that parses; an `.svg` must be a text file; a `data:image/` URI is a base64 png, jpeg or webp, and a payload broken by whitespace whose bytes carry no image magic is prose, not a URI; image metadata inflates to at most 1 MiB per image or embed and 8 MiB per run; no `node_modules/`. | error |
 
 ## What is not checked
 

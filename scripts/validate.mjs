@@ -93,10 +93,32 @@ function normaliseModules(meta, yaml) {
 // can be decoded and scanned; any other data:image/ embed becomes a file-types error.
 // Whitespace and the line-break entities &#10; &#13; &#xA; &#xD; may sit after the comma and inside the payload
 // (browsers strip them before decoding); at least one payload character is still required, so prose such as
-// `data:image/png;base64,...` is not an embed (amendment 7a revised).
-const EMBED_RE = /data:image\/([A-Za-z0-9.+-]+)((?:;[A-Za-z0-9=.+-]*)*),((?:\s|&#(?:10|13|x0?[aAdD]);)*[A-Za-z0-9+/=%](?:[A-Za-z0-9+/=%]|\s|&#(?:10|13|x0?[aAdD]);)*)/gi;
+// `data:image/png;base64,...` is not an embed (amendment 7a revised). The payload ends on a payload character, so
+// the line break after an unwrapped payload does not make it whitespace-bearing.
+const EMBED_RE = /data:image\/([A-Za-z0-9.+-]+)((?:;[A-Za-z0-9=.+-]*)*),((?:\s|&#(?:10|13|x0?[aAdD]);)*[A-Za-z0-9+/=%](?:(?:\s|&#(?:10|13|x0?[aAdD]);)*[A-Za-z0-9+/=%])*)/gi;
 const EMBED_BREAKS_RE = /\s|&#(?:10|13|x0?[aAdD]);/g;
+const EMBED_HAS_BREAK_RE = /\s|&#(?:10|13|x0?[aAdD]);/;
 const EMBED_FORMATS = { png: "png", jpeg: "jpeg", jpg: "jpeg", webp: "webp" };
+
+// A payload holding whitespace or a break entity is decoded first. Unless its bytes start with PNG, JPEG, WebP, GIF
+// or SVG magic it cannot render as an image, so the match is prose naming the prefix and is skipped. A payload
+// without whitespace is always an embed and fails closed (amendment 7a, recheck 3). Only the first bytes are decoded.
+const IMAGE_MAGIC = [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], [0xff, 0xd8, 0xff], "GIF87a", "GIF89a", "<svg", "<?xml"]
+  .map((m) => (typeof m === "string" ? Buffer.from(m, "latin1") : Buffer.from(m)));
+function hasImageMagic(buf) {
+  if (buf.length >= 12 && buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP") return true;
+  return IMAGE_MAGIC.some((m) => buf.length >= m.length && buf.subarray(0, m.length).equals(m));
+}
+function isProseMention(params, payload) {
+  if (!EMBED_HAS_BREAK_RE.test(payload)) return false;
+  const head = payload.replace(EMBED_BREAKS_RE, "").slice(0, 64);
+  let bytes;
+  if (params.split(";").includes("base64")) bytes = Buffer.from(head, "base64");
+  else {
+    try { bytes = Buffer.from(decodeURIComponent(head.replace(/%[0-9A-Fa-f]?$/, "")), "utf8"); } catch { bytes = Buffer.from(head, "latin1"); }
+  }
+  return !hasImageMagic(bytes);
+}
 
 // Leak hits are capped at 100 per pattern per file and 10,000 per run. Past a cap a hit is only counted, and each
 // capped file gets one summary hit per pattern (`more`), so memory is bounded by the caps and the verdict is
@@ -164,7 +186,9 @@ function findEmbeds(texts, files, run, opts, sink) {
     for (const m of text.matchAll(EMBED_RE)) {
       for (let i = text.indexOf("\n", from); i !== -1 && i < m.index; i = text.indexOf("\n", i + 1)) line++;
       from = m.index;
-      embeds.push({ file, line, ...scanEmbed(m[1].toLowerCase(), m[2].toLowerCase(), m[3], run, opts, sink, file, line) });
+      const params = m[2].toLowerCase();
+      if (isProseMention(params, m[3])) continue;
+      embeds.push({ file, line, ...scanEmbed(m[1].toLowerCase(), params, m[3], run, opts, sink, file, line) });
     }
   }
   return embeds;
