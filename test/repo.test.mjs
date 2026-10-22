@@ -73,7 +73,15 @@ test("FORMAT.md names every rule, has the ten sections in order and the version 
   titles.forEach((t, i) => { const at = FORMAT.indexOf(`\n## ${i + 1}. ${t}\n`); assert.ok(at > last, t); last = at; });
   const v = FORMAT.match(/^Version: (\d+)$/m); assert.ok(v); assert.equal(Number(v[1]), SUPPORTED_FORMAT_VERSION);
   assert.ok(FORMAT.indexOf("Version: ") < FORMAT.indexOf("\n## 1. "));
-  assert.ok(countWords(FORMAT) <= 2500, "FORMAT.md over 2,500 words");
+  // R-FMT-3 targets 2,500 words; R-FMT-43 (MUST) outranks it, so the limit is 2,600 (controller ruling, wave C).
+  assert.ok(countWords(FORMAT) <= 2600, "FORMAT.md over 2,600 words");
+});
+test("FORMAT.md section 7 states how declined names are handled in unbuilt.yaml (R-FMT-43)", () => {
+  const s7 = FORMAT.slice(FORMAT.indexOf("\n## 7. "), FORMAT.indexOf("\n## 8. "));
+  assert.match(s7, /platform-blind/);
+  assert.match(s7, /`desktop`, `server` or `mobile`/);
+  assert.match(s7, /module `id` gets a role-word ID that still matches `\^\[A-Z\]\{2,8\}\$`; every declaration, citation and matrix row is renamed/);
+  assert.match(s7, /`name`, a module `path` and a `substitutions` name get a neutral kebab-case name; the folder, directory, file and matrix column are renamed/);
 });
 
 import { runCli, runJson } from "./helpers.mjs";

@@ -121,13 +121,17 @@ No code is copied from the source implementation, even a public one. Invented ex
 
 Always removed: configuration values, real hostnames, IPs, emails, people's names (other than the author's chosen public handle), account aliases, device names, ticket or issue keys, home paths, internal URLs, secrets, and account-specific numbers.
 
-Company and product names are removed by default; the author opts in per name at the extract skill's redaction gate. Public platforms, languages and dependencies count as product names. Replacements are role words in prose, such as "the primary account" or "the work tracker".
+Company and product names are removed by default; the author opts in per name at the extract skill's redaction gate. Public platforms, languages and dependencies count as product names. Replacements are role words in prose, such as "the primary account".
 
 **What the validator scans.** The mechanical subset: emails (`leak-email`), IPv4 and IPv6 addresses (`leak-ipv4`), hostnames and URL hosts (`leak-hostname`), home paths (`leak-home-path`), secret shapes (`leak-secret`), and files it cannot scan (`file-types`). Ticket keys, names, devices, accounts, secrets without a known shape, and bare hostnames under unlisted TLDs are left to the extract skill's human pass.
 
-Leak rules scan each text file, each file and directory path, and each image's metadata, including a base64 png, jpeg or webp `data:` URI in a text file; any other `data:image/` URI is a `file-types` error. A `Users/<name>` or `home/<name>` directory chain is a home path. The `file` column is masked per path segment, like the match. A credential is a key ending in password, passwd, pass, secret, token, api key, private key, access key or secret key, after up to four identifier words, before `:` or `=`. `Bearer <value>` counts after `Authorization:`, a quote or backtick (unless two hyphen-separated parts are 4+ letter words), or when each half has a digit and a letter.
+Leak rules scan each text file, each file and directory path, and each image's metadata, including a base64 png, jpeg or webp `data:` URI in a text file; any other `data:image/` URI is a `file-types` error. A `Users/<name>` or `home/<name>` directory chain is a home path. The `file` column is masked per path segment, like the match. A credential is a key ending in a credential noun, such as password, token or api key, before `:` or `=`. `Bearer <value>` counts after `Authorization:`, a quote or backtick (unless two hyphen-separated parts are 4+ letter words), or when each half has a digit and a letter.
 
-**Declined names in `unbuilt.yaml`.** Only `platforms` and `original_stack` entries are exempt from role words: a declined platform becomes `desktop`, `server` or `mobile`, and a declined stack entry is dropped. Every other value is redacted, and a renamed identifier is renamed everywhere it appears.
+**Declined names in `unbuilt.yaml`.** Only `platforms` and `original_stack` entries are exempt from role words: a declined platform becomes `desktop`, `server` or `mobile`, and a declined stack entry is dropped. This makes the instance platform-blind: a builder's agent cannot tell whether its environment differs from the original. Every other value is redacted:
+
+- `summary` and `implementation_terms` get role words.
+- A module `id` gets a role-word ID that still matches `^[A-Z]{2,8}$`; every declaration, citation and matrix row is renamed with it.
+- `name`, a module `path` and a `substitutions` name get a neutral kebab-case name; the folder, directory, file and matrix column are renamed with it.
 
 **Exemptions and their limits.**
 
