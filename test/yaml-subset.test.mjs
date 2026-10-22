@@ -55,3 +55,69 @@ test("lines map records key lines", () => {
   assert.equal(r.lines.get("a"), 1);
   assert.equal(r.lines.get("b"), 3);
 });
+
+const LIST_OF_MAPS = "m:\n  - id: CORE\n    path: modules/core\n    maturity: shipped\n  - id: UI\n    path: modules/ui\n    maturity: partial\n";
+
+const listAccepts = [
+  ["list at indent 0", "p:\n- a\n- b\n", { p: ["a", "b"] }],
+  ["list at indent 2 closed by a scalar key", "p:\n  - a\n  - b\nq: 1\n", { p: ["a", "b"], q: 1 }],
+  ["list head and item comments", "p: # platforms\n  - macos # desktop\n", { p: ["macos"] }],
+  ["list of maps", LIST_OF_MAPS, {
+    m: [
+      { id: "CORE", path: "modules/core", maturity: "shipped" },
+      { id: "UI", path: "modules/ui", maturity: "partial" },
+    ],
+  }],
+  ["map continuation at column 2 with items at indent 0", "m:\n- id: CORE\n  path: modules/core\n", {
+    m: [{ id: "CORE", path: "modules/core" }],
+  }],
+  ["integer items", "nums:\n  - 1\n  - -5\n", { nums: [1, -5] }],
+];
+for (const [name, input, expected] of listAccepts) {
+  test(`accepts: ${name}`, () => {
+    const r = parse(input);
+    assert.deepEqual(r.errors, []);
+    assert.deepEqual(r.value, expected);
+  });
+}
+
+const listRejects = [
+  ["three-level nesting", "m:\n  - id: A\n    sub:\n      - x\n", 3],
+  ["map value that is a list", "m:\n  - id: A\n    sub:\n", 3],
+  ["list head with nothing following", "p:\n", 1],
+  ["list head followed by a scalar key", "p:\nq: 1\n", 1],
+  ["duplicate key inside one map", "m:\n  - id: A\n    id: B\n", 3],
+  ["inconsistent list indentation", "p:\n  - a\n- b\n", 3],
+  ["list item outside a list", "a: 1\n- b\n", 2],
+  ["continuation at the wrong column", "m:\n  - id: A\n   path: x\n", 3],
+  ["scalar and map items mixed", "m:\n  - a\n  - id: B\n", 3],
+];
+for (const [name, input, line] of listRejects) {
+  test(`rejects: ${name}`, () => {
+    const r = parse(input);
+    assert.equal(r.value, null);
+    assert.ok(r.errors.length >= 1);
+    assert.equal(r.errors[0].line, line);
+    assert.match(r.errors[0].message, new RegExp(`^line ${line}: `));
+  });
+}
+
+test("rejects: empty list head names the key", () => {
+  const r = parse("p:\n");
+  assert.match(r.errors[0].message, /^line 1: "p:" has no value; a scalar or a list must follow$/);
+});
+
+test("rejects: nested list uses the nesting message", () => {
+  for (const input of ["m:\n  - id: A\n    sub:\n      - x\n", "m:\n  - id: A\n    sub:\n"]) {
+    const r = parse(input);
+    assert.match(r.errors[0].message, /nesting deeper than a list of flat maps is not allowed/);
+  }
+});
+
+test("lines map records list-of-maps items and keys", () => {
+  const r = parse(LIST_OF_MAPS);
+  assert.equal(r.lines.get("m"), 1);
+  assert.equal(r.lines.get("m[0]"), 2);
+  assert.equal(r.lines.get("m[0].path"), 3);
+  assert.equal(r.lines.get("m[1]"), 5);
+});

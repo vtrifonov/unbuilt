@@ -2,6 +2,8 @@ const KEY_RE = /^[a-z_][a-z0-9_]*$/;
 const INT_RE = /^-?(0|[1-9][0-9]*)$/;
 const BOOL_RE = /^(?:y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF)$/;
 const NULL_RE = /^(?:~|null|Null|NULL)$/;
+const MAP_ITEM_RE = /^[^ \t'"]*?:(?=[ \t]|$)/;
+const NESTING = "nesting deeper than a list of flat maps is not allowed";
 
 function isBlankOrComment(rest) {
   return /^[ \t]*$/.test(rest) || /^[ \t]+#/.test(rest);
@@ -73,13 +75,80 @@ function keyError(key) {
   return null;
 }
 
+function parseKeyLine(text, n) {
+  const fail = (msg) => ({ error: `line ${n}: ${msg}` });
+  const colon = text.indexOf(":");
+  if (colon < 0) return fail(`expected "key: value" in "${text}"`);
+  const key = text.slice(0, colon);
+  const kErr = keyError(key);
+  if (kErr) return fail(kErr);
+  const rest = text.slice(colon + 1);
+  if (isBlankOrComment(rest)) return { key, head: true };
+  if (rest[0] !== " " || rest[1] === " " || rest[1] === "\t") {
+    return fail(`exactly one space must follow the colon in "${text.replace(/[ \t]+$/, "")}"`);
+  }
+  const s = parseScalar(rest.slice(1), n);
+  if (s.error) return { key, error: s.error };
+  return { key, value: s.value };
+}
+
 export function parse(text) {
   const errors = [];
   const lines = new Map();
   const entries = new Map();
   const err = (n, msg) => errors.push({ line: n, message: `line ${n}: ${msg}` });
+  let list = null;
 
-  let src = text.startsWith("﻿") ? text.slice(1) : text;
+  const closeList = () => {
+    if (!list) return;
+    if (!list.sawItem) err(list.headLine, `"${list.key}:" has no value; a scalar or a list must follow`);
+    entries.set(list.key, list.items.map((x) => (x instanceof Map ? Object.fromEntries(x) : x)));
+    list = null;
+  };
+
+  const addMapEntry = (body, n) => {
+    const kv = parseKeyLine(body, n);
+    if (kv.error && !kv.key) return errors.push({ line: n, message: kv.error });
+    const map = list.currentMap;
+    const prefix = `${list.key}[${list.items.length - 1}]`;
+    if (map.has(kv.key)) return err(n, `duplicate key "${kv.key}" (first at line ${lines.get(`${prefix}.${kv.key}`)})`);
+    lines.set(`${prefix}.${kv.key}`, n);
+    if (kv.head) return err(n, NESTING);
+    if (kv.error) return errors.push({ line: n, message: kv.error });
+    map.set(kv.key, kv.value);
+  };
+
+  const handleItem = (indent, body, n) => {
+    if (!list) return err(n, "list item outside a list");
+    if (list.itemIndent === null) {
+      if (indent !== 0 && indent !== 2) return err(n, "list items must be indented 0 or 2 spaces");
+      list.itemIndent = indent;
+    } else if (indent > list.itemIndent) {
+      return err(n, NESTING);
+    } else if (indent < list.itemIndent) {
+      return err(n, "inconsistent list indentation");
+    }
+    list.sawItem = true;
+    const itemBody = body === "-" ? "" : body.slice(2);
+    if (/^[ \t]*(#.*)?$/.test(itemBody)) return err(n, "empty list item");
+    if (itemBody[0] === " " || itemBody[0] === "\t") return err(n, 'exactly one space must follow "-"');
+    const kind = MAP_ITEM_RE.test(itemBody) ? "maps" : "scalars";
+    if (list.kind && list.kind !== kind) return err(n, "a list holds either scalars or maps, not both");
+    list.kind = kind;
+    const index = list.items.length;
+    lines.set(`${list.key}[${index}]`, n);
+    if (kind === "scalars") {
+      const s = parseScalar(itemBody, n);
+      if (s.error) return errors.push({ line: n, message: s.error });
+      list.items.push(s.value);
+      return;
+    }
+    list.currentMap = new Map();
+    list.items.push(list.currentMap);
+    addMapEntry(itemBody, n);
+  };
+
+  let src = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   src = src.replace(/\r\n/g, "\n");
   const rows = src.split("\n");
   if (rows.length && rows[rows.length - 1] === "") rows.pop();
@@ -89,25 +158,31 @@ export function parse(text) {
     const lead = /^[ \t]*/.exec(line)[0];
     if (lead.includes("\t")) return err(n, "tab in indentation; use spaces");
     if (/^ *$/.test(line) || /^ *#/.test(line)) return;
-    if (lead.length > 0) return err(n, "unexpected indentation");
+    const indent = lead.length;
+    const body = line.slice(indent);
 
-    const colon = line.indexOf(":");
-    if (colon < 0) return err(n, `expected "key: value" in "${line}"`);
-    const key = line.slice(0, colon);
-    const kErr = keyError(key);
-    if (kErr) return err(n, kErr);
-    const rest = line.slice(colon + 1);
+    if (body === "-" || body.startsWith("- ")) return handleItem(indent, body, n);
 
-    if (isBlankOrComment(rest)) return err(n, `"${key}:" has no value; a scalar or a list must follow`);
-    if (rest[0] !== " " || rest[1] === " " || rest[1] === "\t") {
-      return err(n, `exactly one space must follow the colon in "${line.replace(/[ \t]+$/, "")}"`);
+    if (indent > 0) {
+      if (!list || list.kind !== "maps") return err(n, "unexpected indentation");
+      const col = list.itemIndent + 2;
+      if (indent !== col) return err(n, `map continuation must be indented to column ${col}`);
+      return addMapEntry(body, n);
     }
-    const s = parseScalar(rest.slice(1), n);
-    if (s.error) return errors.push({ line: n, message: s.error });
-    if (entries.has(key)) return err(n, `duplicate key "${key}" (first at line ${lines.get(key)})`);
-    entries.set(key, s.value);
-    lines.set(key, n);
+
+    closeList();
+    const kv = parseKeyLine(line, n);
+    if (kv.error && !kv.key) return errors.push({ line: n, message: kv.error });
+    if (lines.has(kv.key)) return err(n, `duplicate key "${kv.key}" (first at line ${lines.get(kv.key)})`);
+    lines.set(kv.key, n);
+    if (kv.error) return errors.push({ line: n, message: kv.error });
+    if (kv.head) {
+      list = { key: kv.key, headLine: n, itemIndent: null, kind: null, items: [], currentMap: null, sawItem: false };
+      return;
+    }
+    entries.set(kv.key, kv.value);
   });
+  closeList();
 
   errors.sort((a, b) => a.line - b.line);
   return { value: errors.length ? null : Object.fromEntries(entries), errors, lines };
