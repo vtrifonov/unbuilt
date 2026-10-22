@@ -64,6 +64,60 @@ function scanHomePath(text) {
   return out;
 }
 
+export const IPV4_RE = /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?!\.?\d)/g;
+const IPV4_VERSION_PREFIX_RE = /(v|version["']?\s*[:=]?\s*["']?|section |§)$/i;
+
+function isIpv4Allowed(addr, opts) {
+  if (addr.startsWith("127.")) return true;
+  if (addr === "0.0.0.0" || addr === "255.255.255.255") return true;
+  if (["192.0.2.", "198.51.100.", "203.0.113."].some((p) => addr.startsWith(p))) return true;
+  return opts.exactHosts.includes(addr);
+}
+
+function scanIpv4(text, opts) {
+  const out = [];
+  for (const m of text.matchAll(IPV4_RE)) {
+    const before = text.slice(Math.max(0, m.index - 24), m.index);
+    if (IPV4_VERSION_PREFIX_RE.test(before)) continue;
+    if (isIpv4Allowed(m[0], opts)) continue;
+    out.push({ pattern: "ipv4", start: m.index, end: m.index + m[0].length, match: m[0] });
+  }
+  return out;
+}
+
+const IPV6_CANDIDATE_RE = /(?<![\w:.])[0-9a-f:]*:[0-9a-f:]*(?:%[a-z0-9]+)?(?![\w:.])/gi;
+
+function classifyIpv6(candidate) {
+  const addr = candidate.split("%")[0];
+  if (addr.split("::").length - 1 > 1) return null;
+  const groups = addr.split(":").filter((g) => g !== "");
+  if (groups.some((g) => g.length < 1 || g.length > 4)) return null;
+  const compressed = addr.includes("::");
+  if (compressed) {
+    if (groups.some((g) => /\d/.test(g)) || groups.length >= 3) return { addr, groups };
+    return null;
+  }
+  if (groups.length === 8) return { addr, groups };
+  if (groups.length === 6 && groups.every((g) => g.length === 2)) return { addr, groups, kind: "mac" };
+  return null;
+}
+
+function scanIpv6(text, opts) {
+  const out = [];
+  for (const m of text.matchAll(IPV6_CANDIDATE_RE)) {
+    const c = classifyIpv6(m[0]);
+    if (!c) continue;
+    const addr = c.addr.toLowerCase();
+    if (addr === "::1") continue;
+    if (c.groups[0] === "2001" && ["db8", "0db8"].includes(c.groups[1]?.toLowerCase())) continue;
+    if (opts.exactHosts.includes(addr) || opts.exactHosts.includes(m[0].toLowerCase())) continue;
+    const f = { pattern: "ipv6", start: m.index, end: m.index + m[0].length, match: m[0] };
+    if (c.kind) f.kind = c.kind;
+    out.push(f);
+  }
+  return out;
+}
+
 function lineStarts(text) {
   const starts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
@@ -84,7 +138,7 @@ function position(starts, offset) {
 function scanSpans(text, opts) {
   const o = normalizeOpts(opts);
   const emails = scanEmail(text, o);
-  const all = [...emails, ...scanHomePath(text, o)];
+  const all = [...emails, ...scanHomePath(text, o), ...scanIpv4(text, o), ...scanIpv6(text, o)];
   return all.sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
