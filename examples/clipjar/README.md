@@ -1,6 +1,6 @@
 # clipjar
 
-This instance was derived by hand from the public source, documentation and issues of the reference implementation. Nobody confirmed it, so every MUST is marked `(inferred)`.
+This instance was derived by hand from the public source, documentation and issues of the reference implementation. Nobody confirmed it, so every MUST requirement and invariant is marked `(inferred)`.
 
 ## What it is
 

@@ -17,4 +17,4 @@ The platform's classic hotkey registration interface with your own recorder; ano
 
 ## How to tell it is right
 
-The picker's hotkey scenarios pass: it opens and closes the picker from another app without changing the active app, a Shift-only choice is refused, and a cleared hotkey leaves the icon as the way in. The choice survives a relaunch.
+The picker's hotkey scenarios pass: the default hotkey opens and closes the picker from another app without changing the active app, a Shift-only choice is refused, and a cleared hotkey leaves the icon as the way in. The choice survives a relaunch.

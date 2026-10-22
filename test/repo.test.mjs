@@ -126,7 +126,8 @@ test("example caps, inferred MUSTs, facts and denylist (R-EX-3, R-EX-6, R-EX-7, 
   assert.ok((y.match(/^\s+- id: /gm) || []).length <= 5);
   assert.match(y, /^interview: none$/m);
   for (const t of texts) for (const line of t.split("\n")) if (/^- \*\*[A-Z]{2,8}-\d+\*\* \(MUST\)/.test(line)) assert.match(line, /^- \*\*[A-Z]{2,8}-\d+\*\* \(MUST\) \(inferred\) /, line);
-  for (const fact of ["Swift 6.2", "Makefile", "macOS 14", "MIT", "GRDB", "KeyboardShortcuts", "Accessibility", "notarized", "Translocation", "Application Support/Clipjar", "network"]) assert.ok(all.toLowerCase().includes(fact.toLowerCase()), fact);
+  for (const fact of ["Swift 6.2", "Makefile", "macOS 14", "GRDB", "KeyboardShortcuts", "Accessibility", "notarized", "Translocation", "Application Support/Clipjar", "network"]) assert.ok(all.toLowerCase().includes(fact.toLowerCase()), fact);
+  assert.match(fs.readFileSync(path.join(EXAMPLE, "README.md"), "utf8"), /\bMIT\b/, "MIT fact in README.md");
   for (const vendor of ["Google", "Microsoft", "Amazon", "Slack", "Atlassian"]) assert.ok(!all.toLowerCase().includes(vendor.toLowerCase()), vendor);
   assert.ok(!fs.existsSync(path.join(EXAMPLE, "retrospective.md")));
 });
