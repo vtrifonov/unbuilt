@@ -353,6 +353,27 @@ test("yaml-enums, module-ids and module-paths branches (R-YML-2, R-YML-5, R-YML-
   const twice = mutYaml(t, (y) => y + "public_hosts:\n  - docs.example-public.org\n  - docs.example-public.org\n");
   assert.ok(twice.errors.some((f) => f.rule === "yaml-fields" && f.message.includes("is listed twice")));
 });
+test("module-paths: a module path must be modules/<kebab-case> (amendment 8c)", (t) => {
+  // Each bad path names an existing directory, so only the shape can fail it.
+  for (const p of ["modules/Core_Stuff/inner", "modules/Core", "modules/core_x", "modules/core/inner", "modules/-core", "modules/core--x", "modules/"]) {
+    const d = makeTempDir(t); copyMinimalValid(d);
+    if (p !== "modules/") fs.mkdirSync(path.join(d, p), { recursive: true });
+    writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("path: modules/core", `path: ${p}`));
+    const { result } = runJson([d, "--json", "--today", "2026-10-22"]);
+    const errs = result.errors.filter((f) => f.rule === "module-paths");
+    assert.equal(errs.length, 1, `${p}: ${JSON.stringify(result.errors)}`);
+    assert.equal(errs[0].file, "unbuilt.yaml"); assert.equal(errs[0].line, 13);
+    assert.ok(errs[0].message.includes(`"${p}"`), errs[0].message);
+  }
+  for (const p of ["modules/core", "modules/core/", "modules/core-2", "modules/a1-b2-c3"]) {
+    const d = makeTempDir(t); copyMinimalValid(d);
+    const dir = p.replace(/\/$/, "");
+    if (dir !== "modules/core") fs.renameSync(path.join(d, "modules/core"), path.join(d, dir));
+    writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("path: modules/core", `path: ${p}`));
+    const { result } = runJson([d, "--json", "--today", "2026-10-22"]);
+    assert.deepEqual(result.errors, [], p);
+  }
+});
 test("duplicate module path is reported once, at the second module (R-YML-6, spec 13)", (t) => {
   for (const p of ["modules/core", "modules/core/"]) {
     const result = mutYaml(t, (y) => y.replace("substitutions:", SECOND_MODULE(p) + "substitutions:"));

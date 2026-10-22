@@ -149,6 +149,8 @@ export function moduleIds(ctx) {
   return out;
 }
 
+const MODULE_PATH_RE = /^modules\/[a-z0-9]+(-[a-z0-9]+)*$/;
+
 export function modulePaths(ctx) {
   const out = [];
   const seen = new Set();
@@ -157,7 +159,8 @@ export function modulePaths(ctx) {
     const line = ctx.yaml.lines.get(`modules[${m.index}].path`);
     const err = (msg) => out.push(finding("error", "module-paths", "unbuilt.yaml", line, msg));
     const label = m.id ?? m.index + 1;
-    if (!m.dir.startsWith("modules/") || m.dir.split("/").includes("..")) err(`module ${label} path "${m.path}" must start with modules/ and contain no .. segment (FORMAT.md §3)`);
+    // After trailing-slash removal the path is modules/ plus one kebab-case directory name (amendment 8c).
+    if (!MODULE_PATH_RE.test(m.dir)) err(`module ${label} path "${m.path}" must be modules/ followed by one kebab-case directory name (FORMAT.md §3)`);
     else if (seen.has(m.dir)) err(`module path ${m.dir} is used by two modules (FORMAT.md §3)`);
     else if (!ctx.dirs.has(m.dir)) err(`module ${label} path ${m.dir} is not a directory (FORMAT.md §3)`);
     seen.add(m.dir);
