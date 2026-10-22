@@ -55,3 +55,37 @@ test("walk: lstat, skips .git, records node_modules and non-regular entries (R-V
   assert.equal(by["Photo.PNG"].ext, "png"); assert.equal(by["Photo.PNG"].isRaster, true); assert.equal(by["Photo.PNG"].isText, false);
   if (linked) assert.equal(by["link.md"].kind, "symlink");
 });
+
+import { blankCommentsAndFences, countLines, countWords, findAttempts, findCitations, findScenarioSections } from "../scripts/lib/markdown.mjs";
+
+test("blankCommentsAndFences keeps line numbers and removes fences and comments (R-VAL-18, R-FMT-29)", () => {
+  const src = "a\n```\n- **CORE-1** (MUST) hidden\n```\n<!-- CORE-2\nstill -->\nb CORE-3\n";
+  const out = blankCommentsAndFences(src);
+  assert.equal(out.split("\n").length, src.split("\n").length);
+  assert.doesNotMatch(out, /CORE-1|CORE-2/);
+  assert.match(out, /CORE-3/);
+  assert.equal(findAttempts(out, ["CORE"]).length, 0);
+  assert.deepEqual(findCitations(out, ["CORE"]).map((c) => [c.id, c.line]), [["CORE-3", 7]]);
+});
+test("countLines and countWords (R-FMT-38)", () => {
+  assert.equal(countLines(""), 0); assert.equal(countLines("a\nb\n"), 2); assert.equal(countLines("a\nb"), 2);
+  assert.equal(countWords("a b\n\n c\n"), 3);
+  // Comments and fence lines count (R-FMT-38): the 9 tokens are `<!--`, `a`, `b`, `-->`, the opening fence, `c`, the closing fence, `d`, `e`.
+  assert.equal(countWords("<!-- a b -->\n```\nc\n```\n d  e\n"), 9);
+});
+test("findAttempts classifies declaration attempts (R-VAL-22)", () => {
+  const prose = ["- **CORE-1** (MUST) Text.", "- **CORE-2** (MUST) (inferred) Text.", "- **CORE-3** retired: moved", "* **CORE-4** (MUST) star", "  - **CORE-5** (MUST) indented",
+    "- **UTF-8**: encoding", "- **PICK-1** (must) other", "- **CORE-6** (MUST) retired", "- **CORE-7** Retired: x", "- **CORE-8** MUST no parens", "- **CORE-4** (MUST) Show retired clips in grey.", "- **core-9** (MUST) lower", "- **CORE-01** (MUST) zero"].join("\n");
+  const a = findAttempts(prose, ["CORE"]);
+  assert.deepEqual(a.map((x) => x.line), [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13]);
+  assert.equal(a[0].exact.modality, "MUST"); assert.equal(a[1].exact.inferred, true); assert.equal(a[2].exact.retired, true);
+  assert.equal(a[3].bullet, "*"); assert.equal(a[3].exact, null); assert.equal(a[4].indented, true);
+  assert.equal(a[5].prefix, "PICK"); assert.equal(a[5].exact, null);
+  assert.equal(a[6].retiredShaped, true); assert.equal(a[7].retiredShaped, true); assert.equal(a[7].exact, null);
+  assert.equal(a[8].exact, null); assert.equal(a[9].exact.text, "Show retired clips in grey."); assert.equal(a[9].retiredShaped, false);
+  assert.equal(a[10].exact, null); assert.equal(a[11].exact, null);
+});
+test("findScenarioSections (R-FMT-18)", () => {
+  const s = findScenarioSections("intro CORE-1\n## One\nbody\n### sub\n##NotOne\n## Two\n");
+  assert.deepEqual(s, [{ title: "One", startLine: 2, endLine: 5 }, { title: "Two", startLine: 6, endLine: 6 }]);
+});
