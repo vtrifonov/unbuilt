@@ -417,3 +417,53 @@ test("evidence-dates: expired warning, bad date, equal date, name shape (rule 16
   const name = runFixture(t, "evidence-dates", { mutate: (d) => { writeIn(d, ev, "Checked: 2026-01-01\nExpires: 2027-01-01\n"); writeIn(d, "evidence/notes.md", "Checked: 2026-01-01\nExpires: 2027-01-01\n"); } });
   assert.ok(has(name.result, "evidence-dates", "error", "evidence/notes.md"));
 });
+
+const leakRules = (r) => [...r.errors, ...r.warnings].filter((f) => f.rule.startsWith("leak-"));
+test("leak messages mask the match (R-VAL-8)", (t) => {
+  for (const rule of ["leak-email", "leak-ipv4", "leak-hostname", "leak-home-path", "leak-secret"]) {
+    const { expect, result } = runFixture(t, rule);
+    const f = result.errors.find((x) => x.rule === rule);
+    assert.ok(f && f.line === 11 && f.file === expect.file, rule);
+    for (const full of ["alice@widgets-intranet.com", "10.20.30.40", "build01.widgets-intranet.com", "/Users/alice", "AKIAIOSFODNN7EXAMPLE"]) assert.ok(!f.message.includes(full), rule);
+    assert.match(f.message, /…/);
+  }
+});
+test("leak-ipv4 forwards the ipv6 pattern (R-TST-7)", (t) => {
+  const { result } = runFixture(t, "leak-ipv4", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "Peer fd12:3456:789a::1 here.\n") });
+  assert.ok(result.errors.some((f) => f.rule === "leak-ipv4" && f.message.startsWith("IPv6 address fd…")));
+});
+test("reference_impl host is exact; public_hosts entries are exact (R-VAL-25, R-YML-15, R-VAL-27)", (t) => {
+  const pub = (d, extra = "") => writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("origin: extracted-from-private-implementation", "origin: extracted-from-public-implementation").replace("reference_impl: private", "reference_impl: https://tool.example-public.org") + extra);
+  const a = runFixture(t, "leak-email", { mutate: (d) => { pub(d); writeIn(d, "README.md", "# minimal-valid\n\nSee tool.example-public.org and ci.tool.example-public.org.\n"); } });
+  const hosts = a.result.errors.filter((f) => f.rule === "leak-hostname").map((f) => f.message);
+  assert.equal(hosts.length, 1); assert.ok(hosts[0].startsWith("hostname ci…"));
+  const b = runFixture(t, "leak-email", { mutate: (d) => { pub(d, "public_hosts:\n  - docs.example-public.org\n  - 1.1.1.1\n"); writeIn(d, "README.md", "# minimal-valid\n\nSee docs.example-public.org and 1.1.1.1, not 1.1.1.2 or api.docs.example-public.org.\n"); } });
+  assert.deepEqual(leakRules(b.result).map((f) => f.rule).sort(), ["leak-hostname", "leak-ipv4"]);
+  const c = runFixture(t, "leak-email", { mutate: (d) => pub(d, "public_hosts:\n  - Docs.Example\n") });
+  assert.ok(c.result.errors.some((f) => f.rule === "yaml-fields" && f.message.includes("public_hosts entry")));
+  const broken = runFixture(t, "leak-email", { mutate: (d) => { pub(d, "public_hosts:\n  - docs.example-public.org\nplatforms: [x]\n"); writeIn(d, "README.md", "# minimal-valid\n\nSee docs.example-public.org.\n"); } });
+  assert.ok(broken.result.errors.some((f) => f.rule === "leak-hostname"));
+});
+test("walk and parse interplay for leaks (R-VAL-12, R-VAL-16, R-VAL-28)", (t) => {
+  const git = runFixture(t, "leak-email", { mutate: (d) => { writeIn(d, "README.md", "# minimal-valid\n\nclean\n"); fs.mkdirSync(path.join(d, ".git")); writeIn(d, ".git/x.md", "ops@widgets-intranet.com"); } });
+  assert.deepEqual(leakRules(git.result), []);
+  const hidden = runFixture(t, "leak-email", { mutate: (d) => writeIn(d, "README.md", "# minimal-valid\n\n<!-- ops@widgets-intranet.com -->\n\n```\n10.20.30.40\n```\n") });
+  assert.deepEqual(leakRules(hidden.result).map((f) => [f.rule, f.line]), [["leak-email", 3], ["leak-ipv4", 6]]);
+  const dbl = runFixture(t, "leak-email", { mutate: (d) => writeIn(d, "README.md", "# minimal-valid\n\nalice@build01.widgets-intranet.com\nhttps://build01.widgets-intranet.com/x\n") });
+  assert.deepEqual(leakRules(dbl.result).map((f) => f.rule), ["leak-email", "leak-hostname"]);
+});
+test("rule gating on YAML failure keeps the leak rules running (R-VAL-14)", (t) => {
+  const { result } = runFixture(t, "yaml-parse", { mutate: (d) => fs.appendFileSync(path.join(d, "README.md"), "\nContact alice@widgets-intranet.com.\n") });
+  const rules = new Set([...result.errors, ...result.warnings].map((f) => f.rule));
+  assert.deepEqual([...rules].sort(), ["leak-email", "yaml-parse"]);
+});
+test("raster metadata is scanned, pixels are not (R-VAL-13, R-VAL-16, R-VAL-43)", (t) => {
+  const clean = (d) => writeIn(d, "README.md", "# minimal-valid\n\nclean\n");
+  const a = runFixture(t, "leak-email", { mutate: (d) => { clean(d); fs.writeFileSync(path.join(d, "design/shot.png"), makePng({ text: [{ keyword: "Author", text: "/Users/alice/x" }] })); } });
+  const l = leakRules(a.result); assert.equal(l.length, 1); assert.equal(l[0].rule, "leak-home-path"); assert.equal(l[0].file, "design/shot.png"); assert.equal("line" in l[0], false);
+  const b = runFixture(t, "leak-email", { mutate: (d) => { clean(d); fs.writeFileSync(path.join(d, "design/big.png"), makePng({ idatBytes: 300 * 1024 })); } });
+  assert.deepEqual(leakRules(b.result), []);
+  const c = runFixture(t, "leak-email", { mutate: (d) => { clean(d); fs.writeFileSync(path.join(d, "design/shot.jpg"), makeJpeg({ app1: ["http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>"] })); } });
+  assert.deepEqual(leakRules(c.result), []);
+  assert.deepEqual(c.result.errors.filter((f) => f.rule === "file-types"), []);
+});

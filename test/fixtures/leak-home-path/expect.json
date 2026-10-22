@@ -1,0 +1,1 @@
+{ "rule": "leak-home-path", "level": "error", "file": "README.md" }

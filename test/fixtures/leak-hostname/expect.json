@@ -1,0 +1,1 @@
+{ "rule": "leak-hostname", "level": "error", "file": "README.md" }

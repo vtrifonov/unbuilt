@@ -1,3 +1,5 @@
+import { maskMatch, scanText } from "./redaction.mjs";
+
 export const SUPPORTED_FORMAT_VERSION = 1;
 
 export const RULES = [];
@@ -383,6 +385,36 @@ function designRequired(ctx) {
   return [finding("error", "design-required", "design/README.md", null, "design/README.md is required when has_ui is true (FORMAT.md §3)")];
 }
 
+function scanInstance(ctx, patterns) {
+  const opts = { allowHosts: ctx.allowHosts, exactHosts: ctx.exactHosts };
+  const out = [];
+  const keep = (file, hits, withLine) => {
+    for (const h of hits) {
+      if (!patterns.includes(h.pattern)) continue;
+      out.push({ file, line: withLine ? h.line : null, match: h.match, pattern: h.pattern, kind: h.kind });
+    }
+  };
+  for (const [file, text] of ctx.texts) keep(file, scanText(text, opts), true);
+  for (const [file, img] of ctx.images) {
+    if (img.format === null) continue;
+    for (const seg of img.segments) keep(file, scanText(seg, opts), false);
+  }
+  return out;
+}
+
+const leakRule = (rule, patterns, describe) => (ctx) =>
+  scanInstance(ctx, patterns).map((h) => finding("error", rule, h.file, h.line, describe(maskMatch(h.match), h)));
+
+const IP_TAIL = "replace it with a role word or, if public, add it to public_hosts (FORMAT.md §7)";
+const leakEmail = leakRule("leak-email", ["email"], (m) => `email address ${m} found; replace it with a role word (FORMAT.md §7)`);
+const leakIpv4 = leakRule("leak-ipv4", ["ipv4", "ipv6"], (m, h) => {
+  if (h.kind === "mac") return `MAC address ${m} found; replace it with a role word (FORMAT.md §7)`;
+  return `${h.pattern === "ipv4" ? "IPv4" : "IPv6"} address ${m} found; ${IP_TAIL}`;
+});
+const leakHostname = leakRule("leak-hostname", ["hostname"], (m) => `hostname ${m} found; ${IP_TAIL}`);
+const leakHomePath = leakRule("leak-home-path", ["home-path"], (m) => `home path ${m} found; replace it with a role word (FORMAT.md §7)`);
+const leakSecret = leakRule("leak-secret", ["secret"], (m) => `secret-shaped value ${m} found; remove it (FORMAT.md §7)`);
+
 RULES.push(
   { name: "required-files", fn: requiredFiles, needsMeta: false },
   { name: "module-files", fn: moduleFiles, needsMeta: true },
@@ -402,6 +434,11 @@ RULES.push(
   { name: "evidence-dates", fn: evidenceDates, needsMeta: false },
   { name: "redaction-required", fn: redactionRequired, needsMeta: true },
   { name: "design-required", fn: designRequired, needsMeta: true },
+  { name: "leak-email", fn: leakEmail, needsMeta: false },
+  { name: "leak-ipv4", fn: leakIpv4, needsMeta: false },
+  { name: "leak-hostname", fn: leakHostname, needsMeta: false },
+  { name: "leak-home-path", fn: leakHomePath, needsMeta: false },
+  { name: "leak-secret", fn: leakSecret, needsMeta: false },
 );
 
 export function isCalendarDate(s) {
