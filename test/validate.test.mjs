@@ -371,3 +371,19 @@ test("scenario coverage edge cases (rules 11–13)", (t) => {
   const expected = runFixture(t, "should-has-scenario");
   assert.ok(expected.result.warnings.some((f) => f.rule === "should-has-scenario" && f.line === 4 && f.message === "CORE-2 is a SHOULD but no scenario cites it (FORMAT.md §5)"));
 });
+
+test("retired declarations: prefix check, bullet message, shared-dir dedupe (fix 1)", (t) => {
+  const spec = (lines) => (d) => writeIn(d, "modules/core/SPEC.md", "# Core\n\n" + lines.join("\n") + "\n");
+  const head = "- **CORE-1** (MUST) A note is saved when the user presses the save key.";
+  const wrong = runFixture(t, "id-format", { mutate: spec([head, "- **PICK-7** retired: moved elsewhere."]) });
+  assert.ok(wrong.result.errors.some((f) => f.rule === "id-format" && f.line === 4 && f.message.includes("PICK-7 is declared in")));
+  const right = runFixture(t, "id-format", { mutate: spec([head, "- **CORE-2** retired: reason"]) });
+  assert.ok(!right.result.errors.some((f) => f.rule === "id-format"));
+  const shaped = runFixture(t, "id-retired-form", { mutate: spec([head, "* **CORE-8** retired: reason", "  - **CORE-9** retired: reason"]) });
+  for (const line of [4, 5]) assert.ok(shaped.result.errors.some((f) => f.rule === "id-retired-form" && f.line === line && f.message.includes("declarations are top-level")), String(line));
+  const d = makeTempDir(t); copyMinimalValid(d);
+  writeIn(d, "unbuilt.yaml", readIn(d, "unbuilt.yaml").replace("substitutions:", SECOND_MODULE("modules/core") + "substitutions:"));
+  fs.rmSync(path.join(d, "modules/core/problem.md"));
+  const dup = runJson([d, "--json", "--today", "2026-10-22"]).result.errors.filter((f) => f.rule === "module-files");
+  assert.equal(dup.length, 1);
+});

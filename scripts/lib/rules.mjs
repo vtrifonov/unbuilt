@@ -19,8 +19,10 @@ function requiredFiles(ctx) {
 
 function moduleFiles(ctx) {
   const out = [];
+  const seen = new Set();
   for (const m of ctx.modules) {
-    if (typeof m.dir !== "string" || !ctx.dirs.has(m.dir)) continue;
+    if (typeof m.dir !== "string" || !ctx.dirs.has(m.dir) || seen.has(m.dir)) continue;
+    seen.add(m.dir);
     for (const name of MODULE_FILES) {
       if (!ctx.files.has(`${m.dir}/${name}`)) out.push(finding("error", "module-files", `${m.dir}/${name}`, null, `module ${m.id ?? m.index + 1} is missing ${name} (FORMAT.md §3)`));
     }
@@ -171,7 +173,7 @@ const attemptId = (a) => {
 function idFormat(ctx) {
   const out = [];
   for (const a of ctx.attempts) {
-    if (a.retiredShaped) continue;
+    if (a.retiredShaped && !a.exact?.retired) continue;
     const err = (msg) => out.push(finding("error", "id-format", a.file, a.line, msg));
     if (a.indented || a.bullet !== "-") {
       err(`${attemptId(a)}: declarations are top-level \`- \` bullets (FORMAT.md §5)`);
@@ -201,7 +203,10 @@ function idRetiredForm(ctx) {
   for (const a of ctx.attempts) {
     if (a.retiredShaped && !a.exact?.retired) {
       const id = attemptId(a);
-      out.push(finding("error", "id-retired-form", a.file, a.line, `retired ${id} must be written "- **${id}** retired: reason" with no modality (FORMAT.md §5)`));
+      const msg = a.indented || a.bullet !== "-"
+        ? `${id}: declarations are top-level \`- \` bullets (FORMAT.md §5)`
+        : `retired ${id} must be written "- **${id}** retired: reason" with no modality (FORMAT.md §5)`;
+      out.push(finding("error", "id-retired-form", a.file, a.line, msg));
     }
   }
   const retired = new Set(ctx.declarations.filter((d) => d.retired).map((d) => d.id));
