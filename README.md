@@ -52,7 +52,7 @@ flowchart LR
     B -->|build| E[web build]
 ```
 
-One instance, many builds. The code never leaves; builders pick their stacks.
+One instance, many builds. The code never leaves; builders pick their stacks and tailor the behaviour.
 
 ## Install
 
@@ -135,9 +135,9 @@ warning  should-has-scenario  modules/capture/SPEC.md:10  CAPTURE-8 is a SHOULD 
 1 error(s), 1 warning(s)
 ```
 
-Every finding names its rule, location and defining `FORMAT.md` section. Leaked values are masked, so the report is safe to paste. `--json` prints `errors` and `warnings` arrays.
+Every finding names its rule, location and defining `FORMAT.md` section. Leaked values are masked, so the report is safe to paste.
 
-The 28 rules cover structure, requirement IDs, modality, budgets and leaks: emails, IP addresses, hostnames, home paths, secret shapes and unscannable files. Leak rules scan text, file and directory names, image metadata and images embedded as `data:` URIs.
+The 28 rules cover structure, requirement IDs, modality, budgets and leaks: emails, IP addresses, hostnames, home paths, secret shapes and unscannable files.
 
 ## Redaction: what is promised and what is not
 
@@ -147,7 +147,7 @@ A passing instance has every required file, every MUST covered by a scenario, no
 
 ## Prior art and positioning
 
-Spec-driven tools (GitHub Spec Kit, Kiro, OpenSpec, BMAD, Tessl) turn a spec into code inside one project. ADRs record decisions. RFC 2119 gives MUST, SHOULD and MAY. test262 and WPT are conformance suites for one standard with many implementations.
+Spec-driven tools (GitHub Spec Kit, Kiro, OpenSpec, BMAD, Tessl) turn a spec into code inside one project. test262 and WPT are conformance suites for one standard with many implementations.
 
 unbuilt sits elsewhere. The spec is extracted from a finished implementation and is the only public artefact. It is built many times in different environments, with no claim of conformance. Publishing one is also a defensive publication: the idea is public, dated and attributed.
 
@@ -157,9 +157,9 @@ unbuilt sits elsewhere. The spec is extracted from a finished implementation and
 
 **What does a builder get?** What the software must do, the limits it works within, scenarios that show the behaviour, substitution points where the choice is theirs, and a milestone order. Not the original code, and two builds will differ. The format promises a spec to build from, not an identical result.
 
-**Can I write an instance for software that was never built?** Yes. Set `origin: designed-not-built`. The format is the same.
+**Can I change what I build?** Yes. Drop a module, change a behaviour to suit you, or add your own. The build records each change as a departure in `PLAN.md`, and the author's later updates keep it unless you say otherwise. With open-source code, the same change is a fork you keep merging against upstream.
 
-**Who owns an instance's license?** The instance author. The license of the original software is a separate matter, and an instance states it in its README.
+**Can I write an instance for software that was never built?** Yes. Set `origin: designed-not-built`. The format is the same.
 
 **Why is there no conformance testing?** Builds are expected to differ. The scenarios say what to check, but nothing here certifies that a build matches the spec.
 
