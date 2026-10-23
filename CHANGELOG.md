@@ -26,5 +26,6 @@ Notes (deliberate spec interpretations, recorded here because the branch merges 
 - Skills `extract`, `build` and `validate`, invoked as `/unbuilt:extract`, `/unbuilt:build` and `/unbuilt:validate`. The marketplace is named `unbuilt`, so the install id is `unbuilt@unbuilt`.
 - Prompt fallbacks in `prompts/` for agents that are not Claude Code.
 - A starting template and the `examples/clipjar` instance.
+- Extract links the unbuilt repository from the instance's `README.md` and names the plugin version that extracted it, with the plugin's git revision when its root is a work tree; update mode refreshes both. `FORMAT.md` §3 lists the link and version in the README contract; nothing is machine-checked, so the format version is unchanged.
 - Extract update mode takes an optional `since <ref>`: it reads only the source files changed after that git revision, interviews only about the affected modules, and still runs the redaction gate over the whole instance.
 - Running `/unbuilt:build` again in a built project re-validates a snapshot of the instance, reports what changed with `scripts/diff.mjs`, and plans an update milestone for finished work. `scripts/snapshot.mjs` makes every copy of instance text, `PLAN.md` gains a `## Departures` section, and the project keeps the last approved instance text in `.unbuilt/baseline/`.

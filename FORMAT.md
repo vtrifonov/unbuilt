@@ -22,7 +22,7 @@ File names are case-sensitive. Modules are one directory per user-facing capabil
 
 | File | Content contract | Rule |
 |---|---|---|
-| `README.md` | What it is and who it is for, a paragraph each; how to build it, pointing at the `/unbuilt:build` skill and the plain prompt `prompts/build.md`; the author's `implementation_terms` restated in prose, or "No terms." when the field is absent. | `required-files` |
+| `README.md` | What it is and who it is for, a paragraph each; how to build it, linking the unbuilt repository, its `/unbuilt:build` skill and plain prompt `prompts/build.md`, and the extracting plugin version; the author's `implementation_terms` restated in prose, or "No terms." when the field is absent. | `required-files` |
 | `unbuilt.yaml` | Metadata, schema below. | `required-files` |
 | `SPEC.md` | Product goal (one paragraph); glossary; invariants with `INV-<n>` IDs; explicit exclusions. | `required-files` |
 | `constraints.md` | Environment, platform, security and privacy MUSTs that bound every build. One bullet per constraint, each with MUST, SHOULD or MAY. No IDs. | `required-files` |
@@ -121,7 +121,7 @@ No code is copied from the source implementation, even a public one. Invented ex
 
 Always removed: configuration values, real hostnames, IPs, emails, people's names (other than the author's chosen public handle), account aliases, device names, ticket or issue keys, home paths, internal URLs, secrets, and account-specific numbers.
 
-Company and product names are removed by default; the author opts in per name at the extract skill's redaction gate. Public platforms, languages and dependencies count as product names. Replacements are role words in prose, such as "the primary account".
+Company and product names are removed by default; the author opts in per name at the extract skill's redaction gate. Public platforms, languages and dependencies count as product names. Replacements are role words in prose.
 
 **What the validator scans.** The mechanical subset: emails (`leak-email`), IPv4 and IPv6 addresses (`leak-ipv4`), hostnames and URL hosts (`leak-hostname`), home paths (`leak-home-path`), secret shapes (`leak-secret`), and files it cannot scan (`file-types`). Ticket keys, names, devices, accounts, secrets without a known shape, and bare hostnames under unlisted TLDs are left to the extract skill's human pass.
 

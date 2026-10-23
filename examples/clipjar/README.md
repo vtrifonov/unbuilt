@@ -12,7 +12,7 @@ It is for people on a Mac who copy and paste all day and want earlier copies a k
 
 ## How to build it
 
-Run the `/unbuilt:build` skill from the unbuilt plugin on this directory, or paste `prompts/build.md` from the unbuilt repository into your agent. Build the milestones in the order `BUILD.md` gives them. Platform facts that bound every build are in `constraints.md`, and the two free choices of library are in `substitutions/README.md`.
+Run the `/unbuilt:build` skill from the [unbuilt](https://github.com/vtrifonov/unbuilt) plugin on this directory, or paste `prompts/build.md` from the unbuilt repository into your agent. Build the milestones in the order `BUILD.md` gives them. Platform facts that bound every build are in `constraints.md`, and the two free choices of library are in `substitutions/README.md`.
 
 The original is written in Swift 6.2 and built with Swift Package Manager plus a Makefile that assembles, signs and packages the app bundle. It is licensed MIT. This instance carries its own MIT license, separate from the original's.
 

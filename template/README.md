@@ -16,9 +16,9 @@ It is for people who want to jot down a thought without opening a document or ch
 
 ## How to build it
 
-<!-- One paragraph: how to build it, pointing at the /unbuilt:build skill and prompts/build.md in the unbuilt repo (FORMAT.md §3). -->
+<!-- One paragraph: how to build it, linking the unbuilt repo, its /unbuilt:build skill and prompts/build.md, and the extracting plugin version (FORMAT.md §3). -->
 
-Run the `/unbuilt:build` skill from the unbuilt plugin on this directory, or paste `prompts/build.md` from the unbuilt repository into your agent. Build the milestones in the order BUILD.md gives them.
+Run the `/unbuilt:build` skill from the [unbuilt](https://github.com/vtrifonov/unbuilt) plugin on this directory, or paste `prompts/build.md` from the unbuilt repository into your agent. Build the milestones in the order BUILD.md gives them. Extracted with unbuilt 0.1.0.
 
 ## Terms
 

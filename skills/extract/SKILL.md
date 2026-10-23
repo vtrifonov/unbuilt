@@ -75,11 +75,12 @@ Write each answer into the draft as it arrives, not at the end.
 ## Step 4: Draft
 
 1. Write every required file: `README.md`, `unbuilt.yaml`, `SPEC.md`, `constraints.md`, `BUILD.md`, and `problem.md`, `SPEC.md` and `scenarios.md` for each module. Write `redaction.md` in step 5. Write each optional file the interview populated: `substitutions/README.md` and one `substitutions/<point>.md` per substitution point, `known-failures.md`, `retrospective.md`, `decisions/`, `evidence/`.
-2. Give requirements IDs in order of first mention: `<MOD>-1`, `<MOD>-2`, and so on per module, `INV-1` onwards for invariants in the root `SPEC.md`. Use the exact declaration form `- **CORE-1** (MUST) Text.`
-3. Write scenarios from the source's existing tests where they exist, rewritten as behaviour in Given/When/Then lines. Never copy test code or test names that carry code. Where no test exists, write scenarios from the interview. Every MUST is cited by at least one scenario.
-4. In `BUILD.md`, make milestone 1 the thinnest end-to-end slice a builder can see run. Order later milestones by dependency. Tell the author they may reorder them.
-5. When `has_ui` is true, write `design/README.md` from the screens you find in the source: views, routes, menus. Give each screen its purpose, key elements and states (empty, loading, error). Add images only when the author supplies synthetic or redacted ones.
-6. When a file would exceed a size budget, summarise its content instead of truncating it mid-section.
+2. In the how-to-build paragraph of `README.md`, link the unbuilt repository and name the plugin version that extracted the instance, for example "Extracted with [unbuilt](<repository>) 0.1.0 at revision `0123456789ab`." Take `repository` and `version` from `<unbuilt-root>/.claude-plugin/plugin.json`. Name the revision only when `<unbuilt-root>` is a git work tree: the first 12 characters of `git -C <unbuilt-root> rev-parse HEAD`, the only git command you run there. In update mode, rewrite the version and revision to the current ones. If the validator flags the repository's host, it reaches the author at step 5.1 like any other `leak-hostname` hit.
+3. Give requirements IDs in order of first mention: `<MOD>-1`, `<MOD>-2`, and so on per module, `INV-1` onwards for invariants in the root `SPEC.md`. Use the exact declaration form `- **CORE-1** (MUST) Text.`
+4. Write scenarios from the source's existing tests where they exist, rewritten as behaviour in Given/When/Then lines. Never copy test code or test names that carry code. Where no test exists, write scenarios from the interview. Every MUST is cited by at least one scenario.
+5. In `BUILD.md`, make milestone 1 the thinnest end-to-end slice a builder can see run. Order later milestones by dependency. Tell the author they may reorder them.
+6. When `has_ui` is true, write `design/README.md` from the screens you find in the source: views, routes, menus. Give each screen its purpose, key elements and states (empty, loading, error). Add images only when the author supplies synthetic or redacted ones.
+7. When a file would exceed a size budget, summarise its content instead of truncating it mid-section.
 
 ## Step 5: Redaction gate
 

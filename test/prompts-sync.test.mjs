@@ -73,6 +73,14 @@ test("extract update mode narrows to a git range with read-only commands", () =>
   assert.ok(body.includes("--no-ext-diff --no-textconv"), "no external diff programs");
   assert.ok(body.includes("Run the redaction gate in full over the whole instance"), "gate stays full");
 });
+test("extract links the unbuilt repository and names the extracting plugin version in README.md", () => {
+  const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/extract/SKILL.md"), "utf8"));
+  assert.ok(body.includes("link the unbuilt repository and name the plugin version that extracted the instance"), "provenance rule");
+  assert.ok(body.includes("`<unbuilt-root>/.claude-plugin/plugin.json`"), "version source");
+  assert.ok(body.includes("`git -C <unbuilt-root> rev-parse HEAD`, the only git command you run there"), "revision source");
+  const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, ".claude-plugin/plugin.json"), "utf8"));
+  assert.match(manifest.repository, /^https:\/\//); assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+});
 test("build skill ends milestone 1 with the exact continue sentence (R-BLD-20)", () => {
   const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8"));
   assert.ok(body.includes("Say `continue` to start milestone 2."), "verbatim continue sentence");
