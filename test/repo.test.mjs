@@ -188,7 +188,7 @@ test("example caps, inferred MUSTs, facts and denylist (R-EX-3, R-EX-6, R-EX-7, 
 
 test("README parts, install form and size (R-DOC-1, R-DOC-3, R-PKG-6, R-PKG-7)", () => {
   const md = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
-  const titles = ["What an unbuilt repo is", "The three verbs", "Install", "Quick start", "The example", "Prior art and positioning", "FAQ", "Discovery", "License"];
+  const titles = ["What an unbuilt repo is", "The three verbs", "How this differs from spec-driven development", "Install", "Instances", "Quick start", "The example", "FAQ", "Discovery", "License"];
   let last = -1; for (const t of titles) { const at = md.indexOf(`\n## ${t}\n`); assert.ok(at > last, t); last = at; }
   assert.ok(md.includes("claude plugin marketplace add vtrifonov/unbuilt") && md.includes("claude plugin install unbuilt@unbuilt"));
   for (const v of ["extract", "build", "validate"]) { assert.ok(md.includes(`/unbuilt:${v}`)); assert.ok(md.includes(`prompts/${v}.md`)); }
