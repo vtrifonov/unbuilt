@@ -8,6 +8,8 @@ Publish software as a specification instead of as code. Anyone can hand the spec
 [![zero dependencies](https://img.shields.io/badge/dependencies-0-success)](package.json)
 [![MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
+![validator demo](.github/demo.gif)
+
 ## What an unbuilt repo is
 
 An unbuilt repo is a public repository that holds the specification of a finished private implementation and nothing else: the behaviour, the constraints, the scenarios that prove the behaviour, and the order to build it in. It holds no source code. Make one when you want to share an idea, with credit, without sharing the code, or when you want the idea to outlive the stack it was first written in.
@@ -54,6 +56,12 @@ flowchart LR
 
 One instance, many builds. The code never leaves; builders pick their stacks and tailor the behaviour.
 
+## How this differs from spec-driven development
+
+Spec-driven tools (GitHub Spec Kit, Kiro, OpenSpec, BMAD, Tessl) turn a spec into code inside one project; the spec is a step on the way to the code. test262 and WPT are conformance suites for one standard with many implementations.
+
+unbuilt sits elsewhere. The spec is extracted from a finished implementation and is the only public artefact. It is built many times in different environments, with no claim of conformance. Publishing one is also a defensive publication: the idea is public, dated and attributed.
+
 ## Install
 
 Claude Code:
@@ -65,7 +73,17 @@ claude plugin install unbuilt@unbuilt
 
 The skills are then `/unbuilt:extract`, `/unbuilt:build` and `/unbuilt:validate`.
 
-Other agents: paste [`prompts/extract.md`](prompts/extract.md), [`prompts/build.md`](prompts/build.md) or [`prompts/validate.md`](prompts/validate.md) into the agent and replace the placeholders in angle brackets with real paths. The prompts are generated from the skills.
+Any other agent (Codex, Cursor, Gemini CLI, Copilot, Aider): paste [`prompts/extract.md`](prompts/extract.md), [`prompts/build.md`](prompts/build.md) or [`prompts/validate.md`](prompts/validate.md) into the agent and replace the placeholders in angle brackets with real paths. The prompts are generated from the skills, or reference them from `AGENTS.md`, `.cursor/rules` or `GEMINI.md`.
+
+## Instances
+
+Published unbuilt repos, newest first. Add yours with a pull request; the only requirements are the `unbuilt` topic and a passing validator.
+
+| Instance | What it is | Origin |
+|---|---|---|
+| [clipjar-unbuilt](examples/clipjar/) | macOS clipboard history app | extracted from [vtrifonov/clipjar](https://github.com/vtrifonov/clipjar) |
+
+Browse all repos tagged [`unbuilt`](https://github.com/topics/unbuilt).
 
 ## Quick start
 
@@ -110,16 +128,7 @@ When the tool checks the clipboard
 Then no clip is created and the content is never read.
 ```
 
-Milestones give an order and a check at each step:
-
-```markdown
-## Milestone 2: Persistent store
-
-Covers: HISTORY-1, HISTORY-5, HISTORY-6, HISTORY-7, HISTORY-8, INV-3
-Done when: clips survive a restart, a deleted clip's text is absent from the
-database files, and a deliberately damaged database is set aside and replaced.
-Effort: M
-```
+Milestones in `BUILD.md` give an order, the requirements each one covers and a "done when" check.
 
 ## The validator
 
@@ -137,19 +146,13 @@ warning  should-has-scenario  modules/capture/SPEC.md:10  CAPTURE-8 is a SHOULD 
 
 Every finding names its rule, location and defining `FORMAT.md` section. Leaked values are masked, so the report is safe to paste.
 
-The 28 rules cover structure, requirement IDs, modality, budgets and leaks: emails, IP addresses, hostnames, home paths, secret shapes and unscannable files.
+The 28 rules cover structure, requirement IDs, modality, budgets and leak shapes: emails, IPs, hostnames, home paths, secrets.
 
 ## Redaction: what is promised and what is not
 
 The validator catches **mechanical** leaks: anything with a recognisable shape. It does not know that "the Berlin office" is private, and it cannot tell a person's name from a role word. That part is the extract skill's human pass and its redaction gate, where company and product names are removed by default and you opt in per name to each one that stays.
 
-A passing instance has every required file, every MUST covered by a scenario, no leak of a known shape, and fits the budgets. That does not make it safe to publish. Read it once as a stranger would before you push.
-
-## Prior art and positioning
-
-Spec-driven tools (GitHub Spec Kit, Kiro, OpenSpec, BMAD, Tessl) turn a spec into code inside one project. test262 and WPT are conformance suites for one standard with many implementations.
-
-unbuilt sits elsewhere. The spec is extracted from a finished implementation and is the only public artefact. It is built many times in different environments, with no claim of conformance. Publishing one is also a defensive publication: the idea is public, dated and attributed.
+A passing instance is not yet safe to publish. Read it once as a stranger would before you push.
 
 ## FAQ
 
@@ -157,22 +160,33 @@ unbuilt sits elsewhere. The spec is extracted from a finished implementation and
 
 **What does a builder get?** What the software must do, the limits it works within, scenarios that show the behaviour, substitution points where the choice is theirs, and a milestone order. Not the original code, and two builds will differ. The format promises a spec to build from, not an identical result.
 
-**Can I change what I build?** Yes. Drop a module, change a behaviour to suit you, or add your own. The build records each change as a departure in `PLAN.md`, and the author's later updates keep it unless you say otherwise. With open-source code, the same change is a fork you keep merging against upstream.
+**Can I change what I build?** Yes. Drop a module, change a behaviour to suit you, or add your own. The build records each change as a departure in `PLAN.md`, and the author's later updates keep it unless you say otherwise.
 
 **Can I write an instance for software that was never built?** Yes. Set `origin: designed-not-built`. The format is the same.
 
-**Why is there no conformance testing?** Builds are expected to differ. The scenarios say what to check, but nothing here certifies that a build matches the spec.
-
 ## Discovery
 
-Name the repository `<name>-unbuilt` and tag it with the GitHub topic `unbuilt`. Put your terms for builders in `implementation_terms`; the instance README restates them. Run the validator in CI; [`.github/workflows/ci.yml`](.github/workflows/ci.yml) shows the job.
+Name the repository `<name>-unbuilt` and tag it with the GitHub topic `unbuilt`. Put your terms for builders in `implementation_terms`; the instance README restates them.
+
+Run the validator in CI with the bundled action:
+
+```yaml
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: vtrifonov/unbuilt@v0.1.0
+```
+
+It fails on any error. Pass `with: { instance: <dir> }` when the instance is not at the root.
 
 ## Versioning
 
-The format and the plugin are versioned separately. Both are tracked in [CHANGELOG.md](CHANGELOG.md).
-
-- **Format** versions are integers, declared as `unbuilt: 1` in every instance. The version is bumped only when a required file or field changes, a rule becomes stricter, or an ID or modality rule changes meaning. New optional files, new warnings and prose clarifications do not bump it. A validator supports exactly one format version.
-- **Plugin** versions follow semver, independent of the format.
+The format and the plugin are versioned separately in [CHANGELOG.md](CHANGELOG.md). Format versions are integers, declared as `unbuilt: 1` in every instance, and bump only when a required file, a rule's strictness or an ID or modality rule changes meaning; a validator supports exactly one. Plugin versions follow semver.
 
 ## Contributing
 

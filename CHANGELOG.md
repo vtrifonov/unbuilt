@@ -2,7 +2,7 @@
 
 ## Format
 
-### 1 (Unreleased)
+### 1 (2026-11-03)
 
 - Required files and the `unbuilt.yaml` schema: README, SPEC, constraints, BUILD, redaction record, modules and design inventory, with optional substitutions, decisions, evidence, known failures and retrospective.
 - Twenty-eight validator rules covering structure, requirement IDs, modality, scenarios, size budgets and mechanical redaction checks (emails, IP addresses, hostnames, home paths, secret shapes, unscannable files).
@@ -21,8 +21,9 @@ Notes (deliberate spec interpretations, recorded here because the branch merges 
 
 ## Plugin
 
-### 0.1.0 (Unreleased)
+### 0.1.0 (2026-11-03)
 
+- A composite GitHub Action at the repository root, so an instance validates in CI with `uses: vtrifonov/unbuilt@v0.1.0`.
 - Skills `extract`, `build` and `validate`, invoked as `/unbuilt:extract`, `/unbuilt:build` and `/unbuilt:validate`. The marketplace is named `unbuilt`, so the install id is `unbuilt@unbuilt`.
 - Prompt fallbacks in `prompts/` for agents that are not Claude Code.
 - A starting template and the `examples/clipjar` instance.

@@ -1,0 +1,25 @@
+name: unbuilt validate
+description: Check an unbuilt instance against FORMAT.md and fail the job on any error.
+author: Vasil Trifonov
+branding:
+  icon: check-square
+  color: blue
+
+inputs:
+  instance:
+    description: Path to the instance directory, relative to the workspace.
+    required: false
+    default: "."
+  node-version:
+    description: Node.js version to run the validator with.
+    required: false
+    default: "22"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+    - run: node "${{ github.action_path }}/scripts/validate.mjs" "${{ inputs.instance }}"
+      shell: bash
