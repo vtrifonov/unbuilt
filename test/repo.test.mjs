@@ -194,6 +194,7 @@ test("README parts, install form and size (R-DOC-1, R-DOC-3, R-PKG-6, R-PKG-7)",
   for (const v of ["extract", "build", "validate"]) { assert.ok(md.includes(`/unbuilt:${v}`)); assert.ok(md.includes(`prompts/${v}.md`)); }
   assert.doesNotMatch(md, /(?<![\w:.])\/(extract|build|validate)\b/); assert.doesNotMatch(md, /unbuilt-(extract|build|validate)/);
   assert.ok(md.includes("examples/clipjar") && md.includes("https://github.com/vtrifonov/clipjar") && md.includes("`unbuilt`"));
+  assert.match(md, /`skills\/build\/updating\.md` and `skills\/extract\/updating\.md`[^\n]*local clone/, "pasted prompts need a clone for update runs");
   assert.ok(countWords(md) < 1500);
 });
 test("CHANGELOG sections (R-DOC-4)", () => {
@@ -209,7 +210,7 @@ const repoFiles = () => walkInstance(ROOT).entries.filter((e) => e.kind === "fil
 test("layout (R-REPO-1..5, R-PKG-5)", () => {
   const top = fs.readdirSync(ROOT, { withFileTypes: true }).filter((d) => d.isDirectory() && d.name !== ".git" && d.name !== "node_modules").map((d) => d.name).sort();
   assert.deepEqual(top, [".claude-plugin", ".github", "examples", "prompts", "scripts", "skills", "template", "test"]);
-  for (const p of ["README.md", "FORMAT.md", "CHANGELOG.md", "LICENSE", "package.json", ".gitignore", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "skills/extract/SKILL.md", "skills/build/SKILL.md", "skills/validate/SKILL.md", "prompts/extract.md", "prompts/build.md", "prompts/validate.md", "scripts/validate.mjs", "scripts/snapshot.mjs", "scripts/diff.mjs", "scripts/lib/yaml-subset.mjs", "scripts/lib/rules.mjs", "scripts/lib/redaction.mjs", "test/validate.test.mjs", "test/snapshot.test.mjs", "test/diff.test.mjs", "test/yaml-subset.test.mjs", "test/redaction.test.mjs", "test/prompts-sync.test.mjs", "test/repo.test.mjs", "scripts/scan-leaks.mjs", "test/scan-leaks.test.mjs", "test/helpers.mjs", "test/fixtures/minimal-valid", "template", "examples/clipjar", ".github/workflows/ci.yml"]) assert.ok(fs.existsSync(path.join(ROOT, p)), p);
+  for (const p of ["README.md", "FORMAT.md", "CHANGELOG.md", "LICENSE", "package.json", ".gitignore", ".claude-plugin/plugin.json", ".claude-plugin/marketplace.json", "skills/extract/SKILL.md", "skills/extract/updating.md", "skills/build/SKILL.md", "skills/build/updating.md", "skills/validate/SKILL.md", "prompts/extract.md", "prompts/build.md", "prompts/validate.md", "scripts/validate.mjs", "scripts/snapshot.mjs", "scripts/diff.mjs", "scripts/lib/yaml-subset.mjs", "scripts/lib/rules.mjs", "scripts/lib/redaction.mjs", "test/validate.test.mjs", "test/snapshot.test.mjs", "test/diff.test.mjs", "test/yaml-subset.test.mjs", "test/redaction.test.mjs", "test/prompts-sync.test.mjs", "test/repo.test.mjs", "scripts/scan-leaks.mjs", "test/scan-leaks.test.mjs", "test/helpers.mjs", "test/fixtures/minimal-valid", "template", "examples/clipjar", ".github/workflows/ci.yml"]) assert.ok(fs.existsSync(path.join(ROOT, p)), p);
   for (const p of ["bin", "commands", "agents", "hooks", "docs/superpowers", "package-lock.json"]) assert.ok(!fs.existsSync(path.join(ROOT, p)), p);
 });
 test("no AI attribution anywhere (R-REPO-6)", () => {
