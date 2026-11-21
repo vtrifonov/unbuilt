@@ -19,6 +19,13 @@ export function runJson(args, opts) {
   return { ...r, result: JSON.parse(r.stdout) };
 }
 
+export const SCAN_CLI = path.join(REPO_ROOT, "scripts", "scan-leaks.mjs");
+
+export function runScan(args) {
+  const r = spawnSync(process.execPath, [SCAN_CLI, ...args], { encoding: "utf8" });
+  return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+}
+
 export function makeTempDir(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unbuilt-test-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

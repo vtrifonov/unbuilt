@@ -235,7 +235,8 @@ function sectionCitations(lines, section, knownPrefixes) {
   return findCitations(text, knownPrefixes).map((c) => ({ id: c.id, line: c.line + section.startLine - 1 }));
 }
 
-export function buildContext(root, today) {
+// `extraHosts` are exact hosts added to the instance's own (scripts/scan-leaks.mjs passes --allow-host values).
+export function buildContext(root, today, { extraHosts = [] } = {}) {
   const { entries, dirs, nodeModulesDirs } = walkInstance(root);
   const files = new Map(entries.filter((e) => e.kind === "file").map((e) => [e.path, e]));
   const texts = new Map();
@@ -272,7 +273,7 @@ export function buildContext(root, today) {
   const citations = new Map();
   for (const [p, text] of prose) citations.set(p, findCitations(text, knownPrefixes));
   const allowHosts = DEFAULT_ALLOW_HOSTS;
-  const exactHosts = metaUsable ? exactHostsOf(meta) : [];
+  const exactHosts = [...(metaUsable ? exactHostsOf(meta) : []), ...extraHosts];
   const leakOpts = { allowHosts, exactHosts };
   const sink = createLeakSink();
   collectTextLeakHits(sink, texts, [...entries.map((e) => e.path), ...dirs], dirs, leakOpts);
@@ -302,6 +303,10 @@ export function runRules(ctx) {
     for (const r of RULES) if (!r.needsMeta || ctx.metaUsable) for (const f of r.fn(ctx)) findings.push(f);
   }
   // Every message and file column, the version short-circuit included, is masked as the last step (amendment 8a).
+  return maskFindings(ctx, findings);
+}
+
+export function maskFindings(ctx, findings) {
   const opts = { allowHosts: ctx.allowHosts, exactHosts: ctx.exactHosts };
   return findings.map((f) => ({ ...f, file: maskPath(f.file, ctx.dirs.has(f.file), opts), message: maskText(f.message, opts) }));
 }

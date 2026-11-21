@@ -146,14 +146,13 @@ warning  should-has-scenario  modules/capture/SPEC.md:10  CAPTURE-8 is a SHOULD 
 
 Every finding names its rule, location and defining `FORMAT.md` section. Leaked values are masked, so the report is safe to paste.
 
-The 28 rules cover structure, requirement IDs, modality, budgets and leak shapes: emails, IPs, hostnames, home paths, secrets.
+The 28 rules cover structure, requirement IDs, modality, budgets and leak shapes, which `scripts/scan-leaks.mjs` checks in any directory.
 
 ## Redaction: what is promised and what is not
 
 The validator catches **mechanical** leaks: anything with a recognisable shape. It does not know that "the Berlin office" is private, and it cannot tell a person's name from a role word. That part is the extract skill's human pass and its redaction gate, where company and product names are removed by default and you opt in per name to each one that stays.
 
 A passing instance is not yet safe to publish. Read it once as a stranger would before you push.
-
 ## FAQ
 
 **Why not just share the code?** Sometimes it cannot be shared: private history, private services, an employer's property. Sometimes it is the wrong thing to share, tied to one language and one era. A spec carries the idea and leaves the choices to the builder.
