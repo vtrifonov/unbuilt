@@ -21,6 +21,10 @@ Notes (deliberate spec interpretations, recorded here because the branch merges 
 
 ## Plugin
 
+### Unreleased
+
+- `scripts/scan-leaks.mjs <dir> [--json] [--allow-host <host>]...` runs only the validator's leak rules on any directory, for example a private repo before it is mirrored publicly. Output is masked like the validator's, and the exit code is 0 for no leaks, 1 for leaks and 2 for a usage or read error. It matches shapes, not names, reads the working tree only and never git history, and lists the files it could not scan. `--allow-host` takes the place of `public_hosts` (#3).
+
 ### 0.1.0 (2026-11-03)
 
 - A composite GitHub Action at the repository root, so an instance validates in CI with `uses: vtrifonov/unbuilt@v0.1.0`.

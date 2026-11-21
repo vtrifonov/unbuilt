@@ -15,6 +15,8 @@ test("--help prints usage and exits 0", () => {
   const r = runScan(["--help"]);
   assert.equal(r.code, 0);
   assert.match(r.stdout, /^usage: node scripts\/scan-leaks\.mjs <dir> \[--json\] \[--allow-host <host>\]\.\.\./);
+  // --help states the limits, since a clean result is easy to over-read.
+  for (const s of ["shapes, not names", "never git history", "skipped", "--allow-host", "0 no leaks, 1 leaks found, 2 usage or read error"]) assert.ok(r.stdout.includes(s), s);
 });
 
 test("a clean directory exits 0 with no leaks and nothing skipped", (t) => {

@@ -9,6 +9,20 @@ import { buildContext, maskFindings, sortFindings } from "./validate.mjs";
 
 export const USAGE = "usage: node scripts/scan-leaks.mjs <dir> [--json] [--allow-host <host>]...\n       node scripts/scan-leaks.mjs --help\n";
 
+export const HELP = USAGE + [
+  "",
+  "Runs only the validator's leak rules on any directory: emails, IP addresses, hostnames, home paths and",
+  "secret shapes in file contents, image metadata and path names. Values are masked in the output.",
+  "",
+  "Limits: it matches shapes, not names, so it does not replace a human read or the extract skill's",
+  "per-name pass. It reads the working tree only, never git history, and skips entries named .git.",
+  "Files it cannot scan (too large, binary, symlinks, unreadable) are listed as skipped.",
+  "Hostname hits are noisy in source code; pass --allow-host <host> for each public host.",
+  "",
+  "Exit codes: 0 no leaks, 1 leaks found, 2 usage or read error.",
+  "",
+].join("\n");
+
 const LEAK_RULES = RULES.filter((r) => r.name.startsWith("leak-"));
 const META_EXTS = ["png", "jpg", "jpeg", "webp"];
 
@@ -83,7 +97,7 @@ function main() {
   try {
     const args = parseArgs(process.argv.slice(2));
     if (args.help) {
-      process.stdout.write(USAGE);
+      process.stdout.write(HELP);
       return;
     }
     if (args.usageError) return usageFail(args.usageError);
