@@ -13,6 +13,10 @@ function splitSkill(text) {
   const fm = Object.fromEntries(m[1].split("\n").map((l) => [l.slice(0, l.indexOf(":")), l.slice(l.indexOf(":") + 1).trim()]));
   return { fm, body: m[2].replace(/^\n+/, "") };
 }
+// Instructions a skill loads only on an update run live in skills/<verb>/updating.md.
+function readUpdating(verb) {
+  return fs.readFileSync(path.join(ROOT, "skills", verb, "updating.md"), "utf8");
+}
 for (const [verb, placeholder] of Object.entries(VERBS)) {
   const skillPath = path.join(ROOT, "skills", verb, "SKILL.md");
   const promptPath = path.join(ROOT, "prompts", `${verb}.md`);
@@ -86,7 +90,7 @@ test("build skill ends milestone 1 with the exact continue sentence (R-BLD-20)",
   assert.ok(body.includes("Say `continue` to start milestone 2."), "verbatim continue sentence");
 });
 test("build skill update flow (R-UPD-85, R-UPD-86)", () => {
-  const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8"));
+  const body = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8")).body + "\n" + readUpdating("build");
   const pinned = [
     "Say `continue` to start milestone 2.",
     "Say `continue` to start update 1.",
@@ -124,7 +128,7 @@ test("build skill deletes the staged baseline before the PLAN.md.next marker (R-
   for (const s of ["delete it and any `.unbuilt/baseline.next`", "delete both staged copies", "names its old ID,."]) assert.ok(!body.includes(s), s);
 });
 test("build skill keeps scratch until the plan is decided, plans uncovered IDs and reports each removed ID (R-UPD-95, R-UPD-60, R-UPD-73)", () => {
-  const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8"));
+  const body = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8")).body + "\n" + readUpdating("build");
   const pinned = [
     "Never delete it while a shown plan waits for the go-ahead.",
     "With working scripts, if this run's snapshot no longer exists at the go-ahead, write nothing and run step 1 again.",
@@ -136,4 +140,27 @@ test("build skill keeps scratch until the plan is decided, plans uncovered IDs a
   for (const s of pinned) assert.ok(body.includes(s), s);
   assert.equal(body.split("Never delete it while a shown plan waits").length, 2, "scratch rule stated once");
   for (const s of ["the run ends without an approved plan", "is reported once per removed module", "a fenced block with one line per entry"]) assert.ok(!body.includes(s), s);
+});
+test("build skill loads the update flow on demand from updating.md (issue #3)", () => {
+  const { body } = splitSkill(fs.readFileSync(path.join(ROOT, "skills/build/SKILL.md"), "utf8"));
+  const updating = readUpdating("build");
+  assert.ok(body.includes("read `<unbuilt-root>/skills/build/updating.md`"), "pointer by <unbuilt-root> path");
+  for (const trigger of ["matching `PLAN.md`", "`continue`", "new session"]) {
+    const at = body.indexOf("read `<unbuilt-root>/skills/build/updating.md`");
+    const sentence = body.slice(body.lastIndexOf("\n", at), body.indexOf("\n", at));
+    assert.ok(sentence.includes(trigger), `pointer names the trigger ${trigger}`);
+  }
+  assert.ok(updating.startsWith("# Updating a build\n"), "updating.md title");
+  for (const h of ["### Order of checks", "### Validate first", "### Detect", "### Plan the update", "### The update milestone", "### Departures and retirements", "### Legacy plans", "### Approval"]) {
+    assert.ok(updating.includes(`\n${h}\n`), `updating.md has ${h}`);
+    assert.ok(!body.includes(`\n${h}\n`), `SKILL.md no longer has ${h}`);
+  }
+});
+test("on-demand files are harness-agnostic (R-EXT-2, R-PKG-10)", () => {
+  for (const verb of ["build"]) {
+    const text = readUpdating(verb);
+    for (const d of DENY) assert.ok(!text.includes(d), `${verb}/updating.md: ${d}`);
+    assert.ok(!text.includes("CLAUDE_PLUGIN_ROOT"), `${verb}/updating.md names CLAUDE_PLUGIN_ROOT`);
+    assert.ok(text.endsWith("\n") && !text.endsWith("\n\n"), `${verb}/updating.md: exactly one trailing newline`);
+  }
 });
