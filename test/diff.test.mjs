@@ -844,7 +844,9 @@ test("1,000 module entries sharing one path compare each large file once (review
   writeIn(oldDir, "modules/core/problem.md", problem("old\n"));
   writeIn(newDir, "modules/core/problem.md", problem("new\n"));
   const r = timed(() => runDiff([oldDir, newDir, "--json"]));
-  assert.ok(r.ms < FAST_MS, `${r.ms.toFixed(0)} ms`);
+  // This run takes 1.4 to 1.7 s on a CI runner and up to 3 s on a busy one, so FAST_MS failed here at random.
+  // Comparing the large file once per entry would take about 1,000 times as long, so 8 s still catches it.
+  assert.ok(r.ms < 8000, `${r.ms.toFixed(0)} ms`);
   assert.equal(r.code, 1, r.stderr);
   r.json = JSON.parse(r.stdout);
   assert.deepEqual(r.json.files, { changed: ["modules/core/problem.md"], added: [], removed: [] });
