@@ -107,7 +107,7 @@ ok: clipjar passes unbuilt format 1
 
 ## The example
 
-[`examples/clipjar/`](examples/clipjar/) is extracted from a small macOS clipboard history app whose original is public at https://github.com/vtrifonov/clipjar, so a reader can compare the spec to the code and see what extraction kept and left out.
+[`examples/clipjar/`](examples/clipjar/) is extracted from a small macOS clipboard history app whose original is public at https://github.com/vtrifonov/clipjar, so a reader can see what extraction kept and dropped. [A Rust rebuild](examples/builds/clipjar-rust.md) tests whether that is enough.
 
 Requirements are one line each, with an ID, a modality and a mark when the author inferred it rather than decided it:
 
