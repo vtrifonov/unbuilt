@@ -194,6 +194,7 @@ test("README parts, install form and size (R-DOC-1, R-DOC-3, R-PKG-6, R-PKG-7)",
   for (const v of ["extract", "build", "validate"]) { assert.ok(md.includes(`/unbuilt:${v}`)); assert.ok(md.includes(`prompts/${v}.md`)); }
   assert.doesNotMatch(md, /(?<![\w:.])\/(extract|build|validate)\b/); assert.doesNotMatch(md, /unbuilt-(extract|build|validate)/);
   assert.ok(md.includes("examples/clipjar") && md.includes("https://github.com/vtrifonov/clipjar") && md.includes("`unbuilt`"));
+  assert.match(md, /`skills\/build\/updating\.md` and `skills\/extract\/updating\.md`[^\n]*local clone/, "pasted prompts need a clone for update runs");
   assert.ok(countWords(md) < 1500);
 });
 test("CHANGELOG sections (R-DOC-4)", () => {

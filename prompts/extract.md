@@ -185,7 +185,7 @@ Use this mode when the author cannot answer the interview.
 
 ## Update mode
 
-When `<output-dir>` already holds an instance that the user says is published (step 1, item 4), read `<unbuilt-root>/skills/extract/updating.md` and follow it. It holds the ID rules and the `since <ref>` flow. The redaction gate still runs in full.
+When `<output-dir>` already holds an instance that the user says is published (step 1, item 4), read `<unbuilt-root>/skills/extract/updating.md` and follow it. If you cannot read it, stop and tell the author that the update instructions in that file are needed. It holds the ID rules and the `since <ref>` flow. The redaction gate still runs in full.
 
 ## Stop conditions
 

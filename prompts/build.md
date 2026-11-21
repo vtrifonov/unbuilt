@@ -158,14 +158,14 @@ If the milestone failed, `continue` re-runs it, because it is still the next unc
 
 ## Later milestones
 
-- When the builder says `continue`, run exactly the next unchecked milestone with the flow of steps 6 and 7, then stop. Run one milestone per `continue`. End each report with the same sentence naming the next milestone, such as "Say `continue` to start milestone 3.". The next unchecked milestone may be an update milestone, named the same way, for example "Say `continue` to start update 1.". A split update uses the part letter, such as "update 2b". After the last milestone, say that every milestone is done instead.
+- When the builder says `continue`, run the update check of `updating.md` first, then run exactly the next unchecked milestone with the flow of steps 6 and 7, then stop. Run one milestone per `continue`. End each report with the same sentence naming the next milestone, such as "Say `continue` to start milestone 3.". The next unchecked milestone may be an update milestone, named the same way, for example "Say `continue` to start update 1.". A split update uses the part letter, such as "update 2b". After the last milestone, say that every milestone is done instead.
 - Do not ask the plan questions again unless the builder changes a substitution, the module set or the stack. If they do, update `PLAN.md` and show it again before writing any further code.
 - In a new session, in a project with a matching `PLAN.md`: run the guards and recovery of "Order of checks" in `updating.md`, read `PLAN.md`, report which milestones are done, then continue its update check.
 - When every milestone is done, the builder says `continue` and the update check finds no change, report completion with a coverage summary and write nothing. The summary lists every covered ID by milestone, the "Not built" list and the departures.
 
 ## Updating a build
 
-In a project with a matching `PLAN.md`, on any `continue` and at the start of a new session, read `<unbuilt-root>/skills/build/updating.md` and follow it before anything else. It holds the order of checks, change detection, update planning, departures and retirements, legacy plans and approval.
+On every run in a project with a matching `PLAN.md`, whether `/unbuilt:build` is run again, the builder says `continue` or a new session starts, read `<unbuilt-root>/skills/build/updating.md` and follow it before anything else. If you cannot read it, stop and tell the builder that the update instructions in that file are needed. It holds the order of checks, change detection, update planning, departures and retirements, legacy plans and approval.
 
 ## Stop conditions
 
