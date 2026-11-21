@@ -16,8 +16,10 @@ export const HELP = USAGE + [
   "",
   "Limits: it matches shapes, not names, so it does not replace a human read or the extract skill's",
   "per-name pass. It reads the working tree only, never git history, and skips entries named .git.",
-  "Files it cannot scan (too large, binary, symlinks, unreadable) are listed as skipped.",
-  "Hostname hits are noisy in source code; pass --allow-host <host> for each public host.",
+  "Files it cannot scan (too large, binary, unparseable images and embeds, symlinks, unreadable) and",
+  "node_modules directories are listed as skipped.",
+  "Hostname hits are noisy in source code; pass --allow-host <host> for each public host. An unbuilt.yaml",
+  "in the scanned directory still allows its public_hosts and reference_impl host, as the validator does.",
   "",
   "Exit codes: 0 no leaks, 1 leaks found, 2 usage or read error.",
   "",
@@ -46,14 +48,34 @@ export function parseArgs(argv) {
   return { dir: positionals[0], json, allowHosts };
 }
 
-// Why an entry was not scanned, or null when it was. Mirrors what buildContext reads.
-function skipReason(e) {
+// Why an entry was not scanned, or null when it was. Mirrors what buildContext reads and what it could parse.
+function skipReason(ctx, e) {
   if (e.kind === "symlink") return "symlink";
   if (e.kind === "unreadable") return "unreadable";
   if (e.kind !== "file") return "special file";
   if (e.isText) return e.tooLarge ? "too large to scan" : null;
-  if (META_EXTS.includes(e.ext)) return e.size > MAX_IMAGE_BYTES ? "image too large to scan" : null;
-  return "binary";
+  if (!META_EXTS.includes(e.ext)) return "binary";
+  if (e.size > MAX_IMAGE_BYTES) return "image too large to scan";
+  const img = ctx.images.get(e.path);
+  if (img === undefined) return "unreadable";
+  return img.error === null ? null : "image could not be parsed";
+}
+
+// Everything buildContext did not scan: entries, node_modules trees it never enters, data: embeds it could not
+// decode, and the embeds of an svg over the image budget, which findEmbeds passes over.
+function collectSkipped(ctx) {
+  const out = [];
+  for (const e of ctx.entries) {
+    const reason = skipReason(ctx, e);
+    if (reason !== null) out.push({ file: e.path, reason });
+  }
+  for (const d of ctx.nodeModulesDirs) out.push({ file: d, reason: "node_modules not scanned" });
+  for (const m of ctx.embeds) if (m.error !== null) out.push({ file: m.file, line: m.line, reason: "embedded image not scanned" });
+  for (const e of ctx.files.values()) {
+    if (e.ext === "svg" && e.size > MAX_IMAGE_BYTES && /data:image\//i.test(ctx.texts.get(e.path) ?? "")) out.push({ file: e.path, reason: "embedded images not scanned (svg too large)" });
+  }
+  out.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : (a.line ?? 0) - (b.line ?? 0)));
+  return out;
 }
 
 export function scanLeaks(dir, { allowHosts = [] } = {}) {
@@ -61,12 +83,12 @@ export function scanLeaks(dir, { allowHosts = [] } = {}) {
   const raw = [];
   for (const r of LEAK_RULES) for (const f of r.fn(ctx)) raw.push(f);
   const findings = sortFindings(maskFindings(ctx, raw));
-  const skippedRaw = [];
-  for (const e of ctx.entries) {
-    const reason = skipReason(e);
-    if (reason !== null) skippedRaw.push({ file: e.path, message: reason });
-  }
-  const skipped = maskFindings(ctx, skippedRaw).map((s) => ({ file: s.file, reason: s.message }));
+  const skipped = maskFindings(ctx, collectSkipped(ctx).map((s) => ({ ...s, message: s.reason }))).map((s) => {
+    const o = { file: s.file };
+    if (s.line) o.line = s.line;
+    o.reason = s.message;
+    return o;
+  });
   return { findings, skipped };
 }
 
@@ -79,7 +101,7 @@ function item(f) {
 
 export function formatHuman({ findings, skipped }) {
   const lines = findings.map((f) => `${f.rule.padEnd(17)}  ${f.file}${f.line ? ":" + f.line : ""}  ${f.message}`);
-  for (const s of skipped) lines.push(`skipped  ${s.file}  ${s.reason}`);
+  for (const s of skipped) lines.push(`skipped  ${s.file}${s.line ? ":" + s.line : ""}  ${s.reason}`);
   lines.push(findings.length === 0 ? "ok: no leaks found" : `${findings.length} leak(s) found`);
   return lines.join("\n") + "\n";
 }

@@ -16,7 +16,7 @@ test("--help prints usage and exits 0", () => {
   assert.equal(r.code, 0);
   assert.match(r.stdout, /^usage: node scripts\/scan-leaks\.mjs <dir> \[--json\] \[--allow-host <host>\]\.\.\./);
   // --help states the limits, since a clean result is easy to over-read.
-  for (const s of ["shapes, not names", "never git history", "skipped", "--allow-host", "0 no leaks, 1 leaks found, 2 usage or read error"]) assert.ok(r.stdout.includes(s), s);
+  for (const s of ["shapes, not names", "never git history", "skipped", "--allow-host", "0 no leaks, 1 leaks found, 2 usage or read error", "public_hosts", "node_modules"]) assert.ok(r.stdout.includes(s), s);
 });
 
 test("a clean directory exits 0 with no leaks and nothing skipped", (t) => {
@@ -89,6 +89,40 @@ test("files that cannot be scanned are listed as skipped and do not change the e
   ]);
   const human = runScan([dir]).stdout.split("\n");
   assert.ok(human.includes("skipped  big.txt  too large to scan"), human.join("\n"));
+});
+
+test("node_modules directories are listed as skipped, at any depth", (t) => {
+  const dir = makeTempDir(t);
+  writeIn(dir, "node_modules/pkg/README.md", fixtureReadme("email"));
+  writeIn(dir, "app/node_modules/x/index.js", "x\n");
+  const r = scanJson([dir, "--json"]);
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.result.skipped, [
+    { file: "app/node_modules", reason: "node_modules not scanned" },
+    { file: "node_modules", reason: "node_modules not scanned" },
+  ]);
+});
+
+test("an image whose metadata cannot be parsed is listed as skipped", (t) => {
+  const dir = makeTempDir(t);
+  writeIn(dir, "broken.png", makePng({ truncate: true }));
+  const r = scanJson([dir, "--json"]);
+  assert.deepEqual(r.result.skipped, [{ file: "broken.png", reason: "image could not be parsed" }]);
+});
+
+test("a data: image embed that cannot be scanned is listed as skipped with its line", (t) => {
+  const dir = makeTempDir(t);
+  writeIn(dir, "a.md", "# A\n\n![x](data:image/gif;base64,R0lGODlhAQABAAAAACw=)\n");
+  const r = scanJson([dir, "--json"]);
+  assert.deepEqual(r.result.skipped, [{ file: "a.md", line: 3, reason: "embedded image not scanned" }]);
+  assert.ok(runScan([dir]).stdout.split("\n").includes("skipped  a.md:3  embedded image not scanned"));
+});
+
+test("an svg too large for embed scanning is listed as skipped when it holds a data: image", (t) => {
+  const dir = makeTempDir(t);
+  writeIn(dir, "big.svg", `<svg xmlns="http://www.w3.org/2000/svg"><image href="data:image/png;base64,iVBORw0KGgo="/>${" ".repeat(2097152)}</svg>\n`);
+  const r = scanJson([dir, "--json"]);
+  assert.deepEqual(r.result.skipped, [{ file: "big.svg", reason: "embedded images not scanned (svg too large)" }]);
 });
 
 test("usage errors exit 2 and print usage", (t) => {
