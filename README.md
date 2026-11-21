@@ -73,7 +73,7 @@ claude plugin install unbuilt@unbuilt
 
 The skills are then `/unbuilt:extract`, `/unbuilt:build` and `/unbuilt:validate`.
 
-Any other agent (Codex, Cursor, Gemini CLI, Copilot, Aider): paste [`prompts/extract.md`](prompts/extract.md), [`prompts/build.md`](prompts/build.md) or [`prompts/validate.md`](prompts/validate.md) into the agent and replace the placeholders in angle brackets with real paths. The prompts are generated from the skills, or reference them from `AGENTS.md`, `.cursor/rules` or `GEMINI.md`.
+Any other agent (Codex, Cursor, Gemini CLI, Copilot, Aider): paste [`prompts/extract.md`](prompts/extract.md), [`prompts/build.md`](prompts/build.md) or [`prompts/validate.md`](prompts/validate.md) into the agent and replace the placeholders in angle brackets with real paths. The prompts are generated from the skills, or reference them from `AGENTS.md`, `.cursor/rules` or `GEMINI.md`. Update runs also read `skills/build/updating.md` and `skills/extract/updating.md`, so `<unbuilt-root>` must be a local clone.
 
 ## Instances
 
