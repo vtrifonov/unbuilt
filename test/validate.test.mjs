@@ -989,3 +989,22 @@ test("user text quoted in a finding message is clipped to 80 characters (securit
   const title = result.errors.find((f) => f.rule === "scenario-cites-id");
   assert.equal(title.message, `scenario "${longTitle.slice(0, 80)}…" cites no declared requirement id (FORMAT.md §3)`);
 });
+
+import { maskFindings } from "../scripts/validate.mjs";
+
+test("buildContext extraHosts suppresses a hostname hit as an exact host (issue #3)", (t) => {
+  const dir = makeTempDir(t);
+  const host = ["build01", "widgets-intranet", "com"].join(".");
+  fs.writeFileSync(path.join(dir, "README.md"), `Served from ${host}.\n`);
+  assert.ok(buildContext(dir, "2026-10-22").leakHits.some((h) => h.pattern === "hostname"), "hit without extraHosts");
+  assert.ok(!buildContext(dir, "2026-10-22", { extraHosts: [host] }).leakHits.some((h) => h.pattern === "hostname"), "no hit with extraHosts");
+  assert.ok(buildContext(dir, "2026-10-22", { extraHosts: ["widgets-intranet.com"] }).leakHits.some((h) => h.pattern === "hostname"), "extraHosts match exactly, not as a suffix");
+});
+
+test("maskFindings masks the file column and the message (issue #3)", (t) => {
+  const dir = makeTempDir(t);
+  const email = ["ops", "widgets-intranet.com"].join("@");
+  const ctx = buildContext(dir, "2026-10-22");
+  const [f] = maskFindings(ctx, [finding("error", "stub", `notes/${email}.md`, 1, `contact ${email}`)]);
+  assert.ok(!f.file.includes(email) && !f.message.includes(email), JSON.stringify(f));
+});
