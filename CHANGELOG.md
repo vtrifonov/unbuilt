@@ -21,6 +21,10 @@ Notes (deliberate spec interpretations, recorded here because the branch merges 
 
 ## Plugin
 
+### Unreleased
+
+- Build and extract load their update instructions only when they need them. The build update flow lives in `skills/build/updating.md` and extract update mode in `skills/extract/updating.md`; each skill reads its file through `<unbuilt-root>`, so pasted prompts work too. A first build loads about a third less text (#3).
+
 ### 0.1.0 (2026-11-03)
 
 - A composite GitHub Action at the repository root, so an instance validates in CI with `uses: vtrifonov/unbuilt@v0.1.0`.
